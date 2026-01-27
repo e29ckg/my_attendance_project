@@ -1,0 +1,15 @@
+{
+    "cooldown_seconds": 3600,
+    "threshold": 0.3,
+    "late_time": "09:00",
+    "enable_voice": false,
+    "enable_cooldown": true,
+    "db_host": "localhost",
+    "db_user": "root",
+    "db_password": "",
+    "db_name": "attendance_system",
+    "camera_width": 640,
+    "camera_height": 480,
+    "process_interval": 5,
+    "camera_index": 1
+}

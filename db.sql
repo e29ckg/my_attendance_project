@@ -1,16 +1,17 @@
-CREATE DATABASE attendance_system;
+CREATE DATABASE IF NOT EXISTS attendance_system;
 USE attendance_system;
 
 -- ตารางพนักงาน
-CREATE TABLE employees (
+CREATE TABLE IF NOT EXISTS employees (
     id INT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(100) NOT NULL,
     image_path VARCHAR(255) NOT NULL
 );
 
--- ตารางบันทึกเวลา
-CREATE TABLE attendance_logs (
+-- ตารางบันทึกเวลา (เพิ่ม evidence_image)
+CREATE TABLE IF NOT EXISTS attendance_logs (
     id INT AUTO_INCREMENT PRIMARY KEY,
     employee_name VARCHAR(100),
-    check_time DATETIME
+    check_time DATETIME,
+    evidence_image VARCHAR(255)
 );

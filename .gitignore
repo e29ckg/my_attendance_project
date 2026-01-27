@@ -17,6 +17,7 @@ env/
 # --- Project Specific (User Data & Reports) ---
 # ไม่ควรเก็บรูปพนักงานขึ้น Git (เพื่อความเป็นส่วนตัวและประหยัดพื้นที่)
 images/
+attendance_images/
 
 # ไม่ควรเก็บไฟล์รายงาน Excel ที่ถูกสร้างขึ้นมา
 *.xlsx

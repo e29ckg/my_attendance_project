@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <title>ตั้งค่าระบบ (Admin)</title>
+    <style>
+        body { font-family: 'Sarabun', sans-serif; background: #f4f7f6; padding: 20px; }
+        .container { max-width: 900px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+        h1, h2 { border-bottom: 2px solid #eee; padding-bottom: 10px; color: #333; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; font-weight: bold; margin-bottom: 5px; }
+        input[type="number"], input[type="text"], input[type="password"], input[type="time"] { 
+            width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; box-sizing: border-box; 
+        }
+        .section { margin-bottom: 40px; padding: 20px; background: #f9f9f9; border-radius: 8px; }
+        .btn { padding: 10px 20px; border: none; cursor: pointer; color: white; border-radius: 5px; }
+        .btn-save { background-color: #007bff; width: 100%; font-size: 16px; margin-top: 10px; }
+        .btn-red { background-color: #dc3545; padding: 5px 10px; }
+        table { width: 100%; border-collapse: collapse; background: white; margin-top: 10px; }
+        th, td { padding: 10px; border: 1px solid #ddd; text-align: left; }
+        th { background: #333; color: white; }
+        .back-link { display: inline-block; margin-bottom: 20px; text-decoration: none; font-size: 18px; color: #555; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="/" class="back-link">⬅️ กลับหน้าหลัก</a>
+        <h1>⚙️ แผงควบคุมผู้ดูแลระบบ (Admin)</h1>
+
+        <div class="section">
+            <h2>🗄️ ตั้งค่าฐานข้อมูล (Database)</h2>
+            <div class="form-group"><label>Host</label><input type="text" id="db_host"></div>
+            <div class="form-group"><label>User</label><input type="text" id="db_user"></div>
+            <div class="form-group"><label>Password</label><input type="password" id="db_password"></div>
+            <div class="form-group"><label>Database Name</label><input type="text" id="db_name"></div>
+        </div>
+        <div class="section">
+            <h2>📷 ตั้งค่ากล้อง & ประสิทธิภาพ</h2>
+            <div class="form-group">
+                <label>หมายเลขกล้อง (Camera Index)</label>
+                <input type="number" id="camIndex" placeholder="ปกติ 0">
+                <small style="color: gray;">0 = กล้องตัวแรก, 1 = กล้องตัวที่สอง (USB)</small>
+            </div>
+            
+            <div class="form-group">
+                <label>ความกว้างกล้อง (Width)</label>
+                <input type="number" id="camWidth" placeholder="ปกติ 640">
+            </div>
+            
+            <div class="form-group">
+                <label>ความสูงกล้อง (Height)</label>
+                <input type="number" id="camHeight" placeholder="ปกติ 480">
+            </div>
+
+            <div class="form-group">
+                <label>ความถี่การสแกน (Interval)</label>
+                <input type="number" id="procInterval" placeholder="ปกติ 5">
+                <small style="color: gray;">สแกนทุกๆ X เฟรม (เลขน้อย=สแกนถี่, เลขมาก=เครื่องลื่น)</small>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>🤖 ตั้งค่า AI & ระบบ</h2>
+            <div class="form-group">
+                <label>⏱️ Cooldown (วินาที)</label>
+                <input type="number" id="cooldown">
+            </div>
+            <div class="form-group">
+                <label>🎯 ความแม่นยำ (Threshold 0.1-0.9)</label>
+                <input type="number" step="0.01" id="threshold">
+            </div>
+            <div class="form-group">
+                <label>⏰ เวลาสาย</label>
+                <input type="time" id="lateTime">
+            </div>
+            <div style="margin-top: 15px;">
+                <input type="checkbox" id="voice"> เปิดเสียงพูด
+                <input type="checkbox" id="smartCool" style="margin-left: 20px;"> กันสแกนซ้ำ
+            </div>
+            <button class="btn btn-save" onclick="saveSettings()">💾 บันทึกการตั้งค่าทั้งหมด</button>
+        </div>
+        
+
+        <div class="section">
+            <h2>👥 จัดการรายชื่อพนักงาน</h2>
+            <button class="btn" style="background:#6c757d; margin-bottom:10px;" onclick="loadEmps()">🔄 รีเฟรชรายชื่อ</button>
+            <table>
+                <thead><tr><th>รูป</th><th>ชื่อ</th><th>จัดการ</th></tr></thead>
+                <tbody id="empTableBody"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        // โหลดค่า Settings
+        async function loadSettings() {
+            const res = await fetch('/api/settings');
+            const d = await res.json();
+            
+            // DB Config
+            document.getElementById('db_host').value = d.db_host || "localhost";
+            document.getElementById('db_user').value = d.db_user || "root";
+            document.getElementById('db_password').value = d.db_password || "";
+            document.getElementById('db_name').value = d.db_name || "attendance_system";
+
+            // System Config
+            document.getElementById('cooldown').value = d.cooldown_seconds;
+            document.getElementById('threshold').value = d.threshold;
+            document.getElementById('lateTime').value = d.late_time;
+            document.getElementById('voice').checked = d.enable_voice;
+            document.getElementById('smartCool').checked = d.enable_cooldown;
+            // Camera Config
+            document.getElementById('camIndex').value = d.camera_index || 0;
+            document.getElementById('camWidth').value = d.camera_width || 640;
+            document.getElementById('camHeight').value = d.camera_height || 480;
+            document.getElementById('procInterval').value = d.process_interval || 5;
+        }
+
+        // บันทึก Settings
+        async function saveSettings() {
+            const config = {
+                db_host: document.getElementById('db_host').value,
+                db_user: document.getElementById('db_user').value,
+                db_password: document.getElementById('db_password').value,
+                db_name: document.getElementById('db_name').value,
+                cooldown_seconds: parseInt(document.getElementById('cooldown').value),
+                threshold: parseFloat(document.getElementById('threshold').value),
+                late_time: document.getElementById('lateTime').value,
+                enable_voice: document.getElementById('voice').checked,
+                enable_cooldown: document.getElementById('smartCool').checked,
+                camera_index: parseInt(document.getElementById('camIndex').value),
+                camera_width: parseInt(document.getElementById('camWidth').value),
+                camera_height: parseInt(document.getElementById('camHeight').value),
+                process_interval: parseInt(document.getElementById('procInterval').value)
+            };
+            await fetch('/api/save_settings', { method:'POST', body: JSON.stringify(config) });
+            alert("บันทึกเรียบร้อย! (ถ้าแก้ DB ต้อง Restart โปรแกรมใหม่)");
+        }
+
+        // โหลดพนักงาน
+        async function loadEmps() {
+            const res = await fetch('/api/employees');
+            const data = await res.json();
+            const tbody = document.getElementById('empTableBody');
+            tbody.innerHTML = '';
+            data.forEach(emp => {
+                const path = emp.image_path.replace(/\\/g, "/");
+                tbody.innerHTML += `
+                    <tr>
+                        <td><img src="/${path}" style="width:50px; height:50px; object-fit:cover; border-radius:50%;"></td>
+                        <td>${emp.name}</td>
+                        <td><button class="btn btn-red" onclick="delEmp(${emp.id})">ลบ</button></td>
+                    </tr>`;
+            });
+        }
+        async function delEmp(id) {
+            if(confirm("ยืนยันลบพนักงานคนนี้?")) {
+                await fetch(`/api/delete_employee/${id}`, { method:'DELETE' });
+                loadEmps();
+            }
+        }
+
+        loadSettings();
+        loadEmps();
+    </script>
+</body>
+</html>

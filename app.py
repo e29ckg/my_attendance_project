@@ -1,186 +1,225 @@
 import cv2
-import numpy as np
 import mysql.connector
+import numpy as np
 import os
 import shutil
+import json
 import pandas as pd
 from datetime import datetime
 from fastapi import FastAPI, Request, File, UploadFile, Form
 from fastapi.responses import StreamingResponse, HTMLResponse, FileResponse
 from fastapi.templating import Jinja2Templates
-
-# นำเข้า DeepFace
+from fastapi.staticfiles import StaticFiles
 from deepface import DeepFace
 
 app = FastAPI()
+
+# --- Config & Directories ---
+UPLOAD_DIR = "images"
+LOG_IMAGE_DIR = "attendance_images"
+CONFIG_FILE = "config.json"
+
+if not os.path.exists(UPLOAD_DIR): os.makedirs(UPLOAD_DIR)
+if not os.path.exists(LOG_IMAGE_DIR): os.makedirs(LOG_IMAGE_DIR)
+
+app.mount("/attendance_images", StaticFiles(directory="attendance_images"), name="attendance_images")
+app.mount("/images", StaticFiles(directory="images"), name="images")
+
 templates = Jinja2Templates(directory="templates")
 
-# --- Config ---
-UPLOAD_DIR = "images"
-if not os.path.exists(UPLOAD_DIR):
-    os.makedirs(UPLOAD_DIR)
-
-db_config = {
-    "host": "localhost",
-    "user": "root",
-    "password": "", # <--- แก้รหัสผ่าน
-    "database": "attendance_system"
+# --- Default Settings (รวม DB Config แล้ว) ---
+default_config = {
+    "cooldown_seconds": 3600,
+    "threshold": 0.30,
+    "late_time": "09:00",
+    "enable_voice": True,
+    "enable_cooldown": True,
+    "db_host": "localhost",
+    "db_user": "root",
+    "db_password": "",
+    "db_name": "attendance_system",
+    "camera_width": 640,    # ความกว้าง
+    "camera_height": 480,   # ความสูง
+    "process_interval": 5,  # ความถี่สแกน (เลขน้อย = เร็วแต่กินเครื่อง, เลขมาก = ช้าแต่ลื่น)
+    "camera_index": 0 # ดัชนีกล้อง (0 = กล้องหลัก, 1 = กล้องรอง, etc.)
 }
 
-def get_db_connection():
-    return mysql.connector.connect(**db_config)
+def load_config():
+    if not os.path.exists(CONFIG_FILE):
+        with open(CONFIG_FILE, 'w') as f: json.dump(default_config, f, indent=4)
+        return default_config
+    try:
+        with open(CONFIG_FILE, 'r') as f: return json.load(f)
+    except: return default_config
 
-# --- Global Variables ---
-known_embeddings = [] # เปลี่ยนจาก encoding เป็น embedding
+def save_config(new_config):
+    with open(CONFIG_FILE, 'w') as f: json.dump(new_config, f, indent=4)
+
+current_config = load_config()
+
+# --- Database Connection (อ่านจาก Config) ---
+def get_db_connection():
+    return mysql.connector.connect(
+        host=current_config["db_host"],
+        user=current_config["db_user"],
+        password=current_config["db_password"],
+        database=current_config["db_name"]
+    )
+
+# --- Globals ---
+known_embeddings = []
 known_names = []
 last_recorded = {}
 last_notified_id = 0
 
-# --- Load Faces (ใช้ DeepFace) ---
+# --- Functions ---
+def load_todays_attendance():
+    global last_recorded
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT employee_name, MAX(check_time) as last_time FROM attendance_logs WHERE DATE(check_time) = CURDATE() GROUP BY employee_name")
+        for row in cursor.fetchall():
+            last_recorded[row['employee_name']] = row['last_time']
+        conn.close()
+    except: pass
+
 def load_known_faces():
     global known_embeddings, known_names
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT name, image_path FROM employees")
-    rows = cursor.fetchall()
-    
-    temp_embeddings = []
-    temp_names = []
-    
-    print("Loading faces with DeepFace... (อาจใช้เวลาสักครู่)")
-    for row in rows:
-        try:
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT name, image_path FROM employees")
+        rows = cursor.fetchall()
+        temp_embeddings, temp_names = [], []
+        print("⏳ Loading faces...")
+        for row in rows:
             if os.path.exists(row['image_path']):
-                # ใช้ Model ชื่อ Facenet512 (เร็วและแม่นยำ)
-                embedding = DeepFace.represent(img_path=row['image_path'], model_name="Facenet512", enforce_detection=False)[0]["embedding"]
-                temp_embeddings.append(embedding)
-                temp_names.append(row['name'])
-        except Exception as e:
-            print(f"Error loading {row['name']}: {e}")
-            
-    known_embeddings = temp_embeddings
-    known_names = temp_names
-    conn.close()
-    print(f"Loaded {len(known_names)} faces.")
+                try:
+                    embed = DeepFace.represent(img_path=row['image_path'], model_name="Facenet512", enforce_detection=False)[0]["embedding"]
+                    temp_embeddings.append(embed)
+                    temp_names.append(row['name'])
+                except: pass
+        known_embeddings = temp_embeddings
+        known_names = temp_names
+        conn.close()
+        print(f"✅ Loaded {len(known_names)} faces")
+    except Exception as e:
+        print(f"❌ DB/Face Error: {e}")
 
-# โหลดครั้งแรก
+# Init
 try:
     load_known_faces()
-except:
-    print("ยังไม่มีข้อมูลใบหน้า หรือ Database ยังไม่พร้อม")
+    load_todays_attendance()
+except: pass
 
-# --- ฟังก์ชันคำนวณความเหมือน (Cosine Similarity) ---
-def find_match(target_embedding, threshold=0.4): # Threshold ยิ่งน้อยยิ่งต้องเหมือนเป๊ะ
-    if len(known_embeddings) == 0:
-        return None
-    
-    # คำนวณระยะห่าง (Cosine Distance)
+# --- Core Logic ---
+def find_match(target_embedding):
+    if not known_embeddings: return None
+    threshold = current_config["threshold"]
     distances = []
     for embed in known_embeddings:
-        a = np.array(target_embedding)
-        b = np.array(embed)
-        # สูตร Cosine Distance
+        a, b = np.array(target_embedding), np.array(embed)
         dist = 1 - (np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b)))
         distances.append(dist)
-    
+    if not distances: return None
     min_dist = min(distances)
-    if min_dist < threshold:
-        index = distances.index(min_dist)
-        return known_names[index]
+    if min_dist < threshold: return known_names[distances.index(min_dist)]
     return None
 
-# --- Video Logic ---
-# --- Video Logic (Optimized: แก้แลค) ---
 def gen_frames():
-    camera = cv2.VideoCapture(0)
+# อ่านค่าจาก Config ล่าสุด
+    width = current_config.get("camera_width", 640)
+    height = current_config.get("camera_height", 480)
+    interval = current_config.get("process_interval", 5)
+
+    cam_index = current_config.get("camera_index", 0) # <--- อ่านค่า Index กล้อง
+
+    # เปิดกล้องตามเลขที่ตั้งไว้
+    camera = cv2.VideoCapture(cam_index)
     
-    # ลดความละเอียดกล้องลงหน่อยเพื่อให้เร็วขึ้น (640x480)
-    camera.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-    camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+    # ตั้งค่ากล้องด้วยตัวแปร
+    camera.set(3, width)  
+    camera.set(4, height) 
 
     face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
     
-    frame_count = 0        # ตัวนับเฟรม
-    process_interval = 30  # กำหนดให้วิเคราะห์หน้าทุกๆ 30 เฟรม (ประมาณ 1 วิ)
-    
-    # ตัวแปรจำค่าล่าสุดไว้โชว์ตอนที่ไม่ได้วิเคราะห์
-    last_face_locations = [] 
-    last_face_names = []
+    frame_count = 0
+    process_interval = interval  # ใช้ค่าจาก Config
+    last_ui_data = []
+
 
     while True:
         success, frame = camera.read()
-        if not success:
-            break
-            
-        # เพิ่มตัวนับเฟรม
+        if not success: break
         frame_count += 1
-        
-        # เตรียมภาพสำหรับวาดกรอบ (Copy มาเพื่อไม่ให้กระทบภาพต้นฉบับ)
         display_frame = frame.copy()
         
-        # --- 1. ทำงานเฉพาะรอบที่กำหนด (เช่น ทุกๆ 30 เฟรม) ---
         if frame_count % process_interval == 0:
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            faces = face_cascade.detectMultiScale(gray, 1.1, 4)
-            
-            last_face_locations = []
-            last_face_names = []
+            faces = face_cascade.detectMultiScale(gray, 1.2, 10, minSize=(100, 100))
+            last_ui_data = []
 
             for (x, y, w, h) in faces:
-                last_face_locations.append((x, y, w, h))
-                
-                # ตัดภาพหน้าไปวิเคราะห์
                 face_img = frame[y:y+h, x:x+w]
-                
+                name_found, status = "Unknown", "Unknown"
                 try:
-                    # ใช้ model "VGG-Face" แทน (เร็วกว่า Facenet512 เล็กน้อยแต่อาจแม่นน้อยกว่านิดนึง)
-                    results = DeepFace.represent(img_path=face_img, model_name="VGG-Face", enforce_detection=False)
-                    
+                    face_rgb = cv2.cvtColor(face_img, cv2.COLOR_BGR2RGB)
+                    results = DeepFace.represent(img_path=face_rgb, model_name="Facenet512", enforce_detection=False)
                     if results:
-                        target_embedding = results[0]["embedding"]
-                        name = find_match(target_embedding) # เรียกฟังก์ชันเปรียบเทียบหน้า
-                        
+                        name = find_match(results[0]["embedding"])
                         if name:
-                            last_face_names.append(name)
-                            
-                            # บันทึกเวลาทันทีที่เจอ
+                            name_found = name
                             now = datetime.now()
-                            # เช็ค Cooldown 30 วินาที
-                            if name not in last_recorded or (now - last_recorded[name]).total_seconds() > 30:
+                            is_cooldown = False
+                            if current_config["enable_cooldown"] and name in last_recorded:
+                                if (now - last_recorded[name]).total_seconds() < current_config["cooldown_seconds"]:
+                                    is_cooldown = True
+                            
+                            if not is_cooldown:
+                                status = "OK"
+                                ts = now.strftime('%Y%m%d_%H%M%S')
+                                ev_fname = f"{name}_{ts}.jpg"
+                                ev_path = os.path.join(LOG_IMAGE_DIR, ev_fname)
+                                cv2.imwrite(ev_path, frame)
+                                
                                 conn = get_db_connection()
-                                cursor = conn.cursor()
-                                cursor.execute("INSERT INTO attendance_logs (employee_name, check_time) VALUES (%s, %s)", (name, now))
+                                cur = conn.cursor()
+                                db_ev_path = f"{LOG_IMAGE_DIR}/{ev_fname}"
+                                cur.execute("INSERT INTO attendance_logs (employee_name, check_time, evidence_image) VALUES (%s, %s, %s)", (name, now, db_ev_path))
                                 conn.commit()
                                 conn.close()
                                 last_recorded[name] = now
-                                print(f"Recorded: {name}")
-                        else:
-                            last_face_names.append("Unknown")
-                    else:
-                        last_face_names.append("Unknown")
+                                print(f"✅ Recorded: {name}")
+                            else:
+                                status = "Checked"
+                        else: status = "Unknown"
+                except: status = "Error"
+                last_ui_data.append((x, y, w, h, name_found, status))
 
-                except Exception as e:
-                    last_face_names.append("Error")
+        for (x, y, w, h, name, status) in last_ui_data:
+            if status == "Error": continue
+            color = (0, 0, 255)
+            label = "Unknown"
+            if status == "OK": color, label = (0, 255, 0), name
+            elif status == "Checked": color, label = (0, 165, 255), f"{name} (Checked)"
+            
+            cv2.rectangle(display_frame, (x, y), (x+w, y+h), color, 2)
+            if status != "Unknown":
+                cv2.rectangle(display_frame, (x, y-30), (x+w, y), color, cv2.FILLED)
+                cv2.putText(display_frame, label, (x+5, y-5), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255,255,255), 2)
 
-        # --- 2. วาดภาพตามข้อมูลล่าสุดที่จำไว้ (เฟรมไหนไม่ได้วิเคราะห์ ก็ใช้ข้อมูลเก่ามาวาด) ---
-        # หมายเหตุ: การวาดแบบนี้ตำแหน่งกรอบอาจจะดีเลย์นิดหน่อยถ้าคนขยับเร็ว แต่แลกกับความลื่นครับ
-        if len(last_face_locations) == len(last_face_names): # เช็คกันพลาด
-            for (x, y, w, h), name in zip(last_face_locations, last_face_names):
-                color = (0, 255, 0) if name != "Unknown" and name != "Error" else (0, 0, 255)
-                
-                cv2.rectangle(display_frame, (x, y), (x+w, y+h), color, 2)
-                cv2.putText(display_frame, name, (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, color, 2)
-
-        # ส่งภาพกลับไปที่หน้าเว็บ
         ret, buffer = cv2.imencode('.jpg', display_frame)
-        frame_bytes = buffer.tobytes()
-        yield (b'--frame\r\n'
-               b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+        yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
 
-# --- Routes (คงเดิม) ---
+# --- Routes ---
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
+
+@app.get("/admin", response_class=HTMLResponse)
+async def admin(request: Request):
+    return templates.TemplateResponse("admin.html", {"request": request})
 
 @app.get("/video_feed")
 async def video_feed():
@@ -189,51 +228,80 @@ async def video_feed():
 @app.post("/register_snapshot")
 async def register_snapshot(name: str = Form(...), file: UploadFile = File(...)):
     safe_name = name.replace(" ", "_")
-    file_path = f"{UPLOAD_DIR}/{safe_name}_{datetime.now().strftime('%Y%m%d%H%M%S')}.jpg"
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-    
+    fpath = f"{UPLOAD_DIR}/{safe_name}_{datetime.now().strftime('%Y%m%d%H%M%S')}.jpg"
+    with open(fpath, "wb") as b: shutil.copyfileobj(file.file, b)
     conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("INSERT INTO employees (name, image_path) VALUES (%s, %s)", (name, file_path))
+    cur = conn.cursor()
+    cur.execute("INSERT INTO employees (name, image_path) VALUES (%s, %s)", (name, fpath))
     conn.commit()
     conn.close()
-    
-    # Reload Memory
     load_known_faces()
-    return {"status": "success", "message": f"ลงทะเบียนคุณ {name} เรียบร้อย!"}
+    return {"status": "success", "message": f"ลงทะเบียน {name} สำเร็จ"}
 
 @app.get("/recent_attendance")
 async def recent_attendance():
     global last_notified_id
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT id, employee_name, check_time FROM attendance_logs ORDER BY check_time DESC LIMIT 10")
-    results = cursor.fetchall()
-    conn.close()
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(dictionary=True)
+        cur.execute("SELECT id, employee_name, check_time, evidence_image FROM attendance_logs ORDER BY check_time DESC LIMIT 10")
+        results = cur.fetchall()
+        conn.close()
+    except: results = []
     
-    new_entry = False
-    latest_name = ""
-    if results:
-        if results[0]['id'] > last_notified_id:
-            new_entry = True
-            last_notified_id = results[0]['id']
-            latest_name = results[0]['employee_name']
+    new_entry, latest_name = False, ""
+    if results and results[0]['id'] > last_notified_id:
+        new_entry = True
+        last_notified_id = results[0]['id']
+        latest_name = results[0]['employee_name']
 
-    for row in results:
-        row['check_time'] = row['check_time'].strftime('%H:%M:%S | %d-%m-%Y')
-
-    return {"data": results, "new_entry": new_entry, "latest_name": latest_name}
+    for row in results: row['check_time'] = row['check_time'].strftime('%H:%M:%S')
+    return { "data": results, "new_entry": new_entry, "latest_name": latest_name, "voice_enabled": current_config["enable_voice"] }
 
 @app.get("/export_excel")
 async def export_excel():
     conn = get_db_connection()
-    df = pd.read_sql("SELECT employee_name, check_time FROM attendance_logs ORDER BY check_time DESC", conn)
+    df = pd.read_sql("SELECT employee_name, check_time, evidence_image FROM attendance_logs ORDER BY check_time DESC", conn)
     conn.close()
-    filename = "Attendance_Report.xlsx"
-    df.to_excel(filename, index=False)
-    return FileResponse(path=filename, filename=f"Report.xlsx")
+    fname = "Attendance_Report.xlsx"
+    df.to_excel(fname, index=False)
+    return FileResponse(fname, filename=f"Report_{datetime.now().strftime('%Y%m%d')}.xlsx")
+
+# --- Admin APIs ---
+@app.get("/api/settings")
+async def get_settings(): return current_config
+
+@app.post("/api/save_settings")
+async def save_settings(request: Request):
+    global current_config
+    data = await request.json()
+    current_config.update(data)
+    save_config(current_config)
+    return {"status": "success", "message": "บันทึกการตั้งค่าเรียบร้อย"}
+
+@app.get("/api/employees")
+async def get_employees():
+    conn = get_db_connection()
+    cur = conn.cursor(dictionary=True)
+    cur.execute("SELECT id, name, image_path FROM employees ORDER BY id DESC")
+    res = cur.fetchall()
+    conn.close()
+    return res
+
+@app.delete("/api/delete_employee/{emp_id}")
+async def delete_employee(emp_id: int):
+    conn = get_db_connection()
+    cur = conn.cursor(dictionary=True)
+    cur.execute("SELECT name, image_path FROM employees WHERE id = %s", (emp_id,))
+    row = cur.fetchone()
+    if row:
+        if os.path.exists(row['image_path']): os.remove(row['image_path'])
+        cur.execute("DELETE FROM employees WHERE id = %s", (emp_id,))
+        conn.commit()
+        load_known_faces()
+    conn.close()
+    return {"status": "success", "message": "ลบพนักงานสำเร็จ"}
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=9876)
+    uvicorn.run(app, host="0.0.0.0", port=8081)
