@@ -1,0 +1,31 @@
+# --- Python & Bytecode ---
+__pycache__/
+*.py[cod]
+*$py.class
+
+# --- Virtual Environment (สำคัญมาก ห้ามขึ้น Git) ---
+venv/
+env/
+.venv/
+.env
+
+# --- IDE / Editor Settings ---
+.vscode/
+.idea/
+*.swp
+
+# --- Project Specific (User Data & Reports) ---
+# ไม่ควรเก็บรูปพนักงานขึ้น Git (เพื่อความเป็นส่วนตัวและประหยัดพื้นที่)
+images/
+
+# ไม่ควรเก็บไฟล์รายงาน Excel ที่ถูกสร้างขึ้นมา
+*.xlsx
+*.csv
+
+# --- DeepFace & TensorFlow ---
+# ป้องกันไฟล์ Model ขนาดใหญ่ที่อาจถูกโหลดมาเก็บไว้
+.deepface/
+weights/
+
+# --- Logs ---
+*.log

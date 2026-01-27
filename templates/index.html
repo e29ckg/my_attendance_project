@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <title>ระบบลงเวลาด้วยใบหน้า</title>
+    <style>
+        body { font-family: 'Sarabun', sans-serif; background-color: #f4f7f6; margin: 0; padding: 20px; text-align: center; }
+        .container { display: flex; flex-wrap: wrap; justify-content: center; gap: 20px; max-width: 1200px; margin: auto; }
+        
+        /* การ์ดวิดีโอ */
+        .card { background: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); flex: 1; min-width: 300px; }
+        h1 { color: #333; margin-bottom: 20px; }
+        img.video-feed { width: 100%; border-radius: 10px; border: 3px solid #ddd; }
+        
+        /* ส่วนลงทะเบียน */
+        .register-box { margin-top: 20px; padding-top: 20px; border-top: 1px solid #eee; }
+        input[type="text"] { padding: 10px; border-radius: 5px; border: 1px solid #ccc; width: 60%; }
+        .btn { padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; color: white; transition: 0.3s; }
+        .btn-blue { background-color: #007bff; }
+        .btn-blue:hover { background-color: #0056b3; }
+        .btn-green { background-color: #28a745; text-decoration: none; display: inline-block; margin-top: 10px; }
+        
+        /* ตาราง */
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
+        th { background-color: #f8f9fa; color: #555; }
+        tr:first-child { background-color: #e8f5e9; font-weight: bold; color: #2e7d32; } /* ไฮไลท์แถวแรก */
+    </style>
+</head>
+<body>
+
+    <h1>📸 ระบบลงเวลาเข้างานอัตโนมัติ (AI Face Scan)</h1>
+
+    <div class="container">
+        <div class="card">
+            <h3>🔴 กล้องตรวจจับ</h3>
+            <img src="/video_feed" class="video-feed" id="videoElement">
+            
+            <div class="register-box">
+                <h4>ลงทะเบียนพนักงานใหม่</h4>
+                <input type="text" id="empName" placeholder="กรอกชื่อ-นามสกุล">
+                <button class="btn btn-blue" onclick="takeSnapshot()">📸 ถ่ายภาพลงทะเบียน</button>
+            </div>
+            
+            <div style="margin-top: 20px;">
+                <a href="/export_excel" class="btn btn-green">📊 ดาวน์โหลดรายงาน Excel</a>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>🕒 ประวัติการลงเวลาล่าสุด</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>ชื่อพนักงาน</th>
+                        <th>เวลา</th>
+                    </tr>
+                </thead>
+                <tbody id="tableBody">
+                    <tr><td colspan="2">กำลังโหลดข้อมูล...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <canvas id="canvas" width="640" height="480" style="display:none;"></canvas>
+
+    <script>
+        // 1. ฟังก์ชันถ่ายภาพลงทะเบียน
+        async function takeSnapshot() {
+            const name = document.getElementById('empName').value;
+            if (!name) {
+                alert("กรุณากรอกชื่อพนักงานก่อนครับ");
+                return;
+            }
+
+            const canvas = document.getElementById('canvas');
+            const context = canvas.getContext('2d');
+            const videoImg = document.getElementById('videoElement');
+
+            // วาดภาพจาก <img> ลง Canvas (ต้องมั่นใจว่าขนาดตรงกัน)
+            context.drawImage(videoImg, 0, 0, canvas.width, canvas.height);
+
+            canvas.toBlob(async (blob) => {
+                const formData = new FormData();
+                formData.append('name', name);
+                formData.append('file', blob, `${name}.jpg`);
+
+                try {
+                    const response = await fetch('/register_snapshot', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    const result = await response.json();
+                    alert(result.message);
+                    if(result.status === 'success') document.getElementById('empName').value = '';
+                } catch (err) {
+                    alert("เกิดข้อผิดพลาดในการบันทึก");
+                }
+            }, 'image/jpeg');
+        }
+
+        // 2. ฟังก์ชันอัปเดตตารางและเสียงพูด
+        async function updateTable() {
+            try {
+                const response = await fetch('/recent_attendance');
+                const result = await response.json();
+                
+                const tableBody = document.getElementById('tableBody');
+                tableBody.innerHTML = ''; // ล้างข้อมูลเก่า
+
+                result.data.forEach(row => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `<td>${row.employee_name}</td><td>${row.check_time}</td>`;
+                    tableBody.appendChild(tr);
+                });
+
+                // ตรวจสอบว่าต้องพูดเสียงหรือไม่
+                if (result.new_entry === true) {
+                    speakWelcome(result.latest_name);
+                }
+
+            } catch (error) {
+                console.error('Error:', error);
+            }
+        }
+
+        // 3. ฟังก์ชันแปลงข้อความเป็นเสียง (Text-to-Speech)
+        function speakWelcome(name) {
+            if ('speechSynthesis' in window) {
+                const msg = new SpeechSynthesisUtterance();
+                msg.text = "ยินดีต้อนรับ คุณ " + name + " ค่ะ";
+                msg.lang = 'th-TH'; // ตั้งค่าเป็นภาษาไทย
+                msg.rate = 1;       // ความเร็วปกติ
+                window.speechSynthesis.speak(msg);
+            }
+        }
+
+        // ทำงานวนซ้ำทุก 2 วินาที
+        setInterval(updateTable, 2000);
+        updateTable(); // เรียกครั้งแรกทันที
+    </script>
+</body>
+</html>

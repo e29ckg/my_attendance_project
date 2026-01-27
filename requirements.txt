@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+opencv-python
+face_recognition
+mysql-connector-python
+pandas
+openpyxl
+jinja2
+python-multipart
+cmake
+face_recognition
