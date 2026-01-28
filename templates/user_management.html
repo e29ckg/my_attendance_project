@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>จัดการพนักงาน - AI Attendance</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    
+    <style>
+        body { font-family: 'Sarabun', sans-serif; background-color: #f0f2f5; }
+        
+        /* Profile Image Style */
+        .avatar-img {
+            width: 55px;
+            height: 55px;
+            object-fit: cover;
+            border-radius: 50%;
+            border: 2px solid #fff;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            transition: transform 0.2s;
+        }
+        .avatar-img:hover { transform: scale(1.1); }
+        
+        /* Card Style */
+        .card { border: none; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.03); }
+        .table-hover tbody tr:hover { background-color: #f8f9fa; }
+        
+        /* Badge Colors */
+        .badge-role { font-size: 0.85em; padding: 6px 10px; border-radius: 20px; font-weight: 500; }
+        .role-guard { background-color: #e3f2fd; color: #0d47a1; }     /* รปภ สีฟ้า */
+        .role-maid { background-color: #fce4ec; color: #880e4f; }      /* แม่บ้าน สีชมพู */
+        .role-intern { background-color: #fff3e0; color: #e65100; }    /* นักศึกษา สีส้ม */
+        .role-staff { background-color: #e8f5e9; color: #1b5e20; }     /* พนักงานทั่วไป สีเขียว */
+
+        /* Nav Tabs */
+        .nav-pills .nav-link.active { background-color: #4361ee; }
+        .nav-link { color: #555; font-weight: 600; }
+    </style>
+</head>
+<body class="p-4">
+    <div class="container">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <div>
+                <h2 class="fw-bold text-primary"><i class="fas fa-users-cog"></i> ระบบจัดการพนักงาน</h2>
+                <p class="text-muted">เพิ่ม ลบ แก้ไข และกำหนดกะการทำงาน</p>
+            </div>
+            <a href="/dashboard" class="btn btn-outline-secondary"><i class="fas fa-arrow-left"></i> กลับหน้า Dashboard</a>
+        </div>
+
+        <ul class="nav nav-pills mb-4" id="pills-tab" role="tablist">
+            <li class="nav-item"><button class="nav-link active" data-bs-toggle="pill" data-bs-target="#tab-emp">👥 รายชื่อพนักงาน (Employees)</button></li>
+            <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#tab-rules">⚙️ ตั้งค่ากะ (Rules)</button></li>
+            <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#tab-shifts">📅 มอบหมายเวร (Schedule)</button></li>
+        </ul>
+
+        <div class="tab-content" id="pills-tabContent">
+            
+            <div class="tab-pane fade show active" id="tab-emp">
+                <div class="row">
+                    <div class="col-md-4 mb-4">
+                        <div class="card p-4">
+                            <h5 class="mb-3"><i class="fas fa-user-plus"></i> ลงทะเบียนใหม่</h5>
+                            <form id="regForm">
+                                <div class="mb-3">
+                                    <label class="form-label small text-muted">รหัสพนักงาน (ID)</label>
+                                    <input type="text" id="reg_id" class="form-control" placeholder="เช่น 1001" required>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label small text-muted">ชื่อ-นามสกุล</label>
+                                    <input type="text" id="reg_name" class="form-control" placeholder="ภาษาไทย" required>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label small text-muted">ตำแหน่ง/กลุ่ม</label>
+                                    <select id="reg_role" class="form-select">
+                                        <option value="รปภ">รปภ.</option>
+                                        <option value="แม่บ้าน">แม่บ้าน</option>
+                                        <option value="นักศึกษา">นักศึกษาฝึกงาน</option>
+                                        <option value="พนักงานทั่วไป">พนักงานทั่วไป</option>
+                                    </select>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label small text-muted">รูปถ่ายหน้าตรง</label>
+                                    <input type="file" id="reg_file" class="form-control" required accept="image/*">
+                                </div>
+                                <button type="button" onclick="registerUser()" class="btn btn-primary w-100 fw-bold">บันทึกข้อมูล</button>
+                            </form>
+                        </div>
+                    </div>
+
+                    <div class="col-md-8">
+                        <div class="card p-4">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <h5 class="m-0">📋 รายชื่อพนักงานทั้งหมด</h5>
+                                <span class="badge bg-light text-dark border" id="userCount">0 คน</span>
+                            </div>
+                            <div class="table-responsive">
+                                <table class="table table-hover align-middle">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th style="width: 80px;">รูปภาพ</th>
+                                            <th>รหัส</th>
+                                            <th>ชื่อ-นามสกุล</th>
+                                            <th>ตำแหน่ง</th>
+                                            <th class="text-end">จัดการ</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="empTableBody">
+                                        </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="tab-pane fade" id="tab-rules">
+                <div class="row">
+                    <div class="col-md-4">
+                        <div class="card p-4">
+                            <h5>🕒 สร้างกะการทำงาน</h5>
+                            <form id="ruleForm">
+                                <input type="text" id="rule_name" class="form-control mb-2" placeholder="ชื่อกะ (เช่น กะเช้า)" required>
+                                <div class="row g-2">
+                                    <div class="col-6"><label class="small">เวลาเข้า</label><input type="time" id="s_time" class="form-control"></div>
+                                    <div class="col-6"><label class="small">เริ่มสาย</label><input type="time" id="l_time" class="form-control"></div>
+                                </div>
+                                <div class="mt-2 mb-3">
+                                    <label class="small">เวลาเลิกงาน</label><input type="time" id="e_time" class="form-control">
+                                </div>
+                                <button type="button" onclick="saveRule()" class="btn btn-info text-white w-100">บันทึกกะ</button>
+                            </form>
+                        </div>
+                    </div>
+                    <div class="col-md-8">
+                        <div class="card p-4">
+                            <table class="table table-bordered">
+                                <thead class="table-light"><tr><th>ชื่อกะ</th><th>เข้างาน</th><th>สายหลัง</th><th>เลิกงาน</th><th>ลบ</th></tr></thead>
+                                <tbody id="ruleTable"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="tab-pane fade" id="tab-shifts">
+                <div class="card p-4">
+                    <div class="row align-items-end">
+                        <div class="col-md-3">
+                            <label>รหัสพนักงาน</label>
+                            <input type="text" id="sch_id" class="form-control" placeholder="ระบุ ID">
+                        </div>
+                        <div class="col-md-3">
+                            <label>เลือกกะงาน</label>
+                            <select id="sch_rule" class="form-select"></select>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="input-group">
+                                <span class="input-group-text">วันที่</span>
+                                <input type="date" id="sch_start" class="form-control">
+                                <span class="input-group-text">ถึง</span>
+                                <input type="date" id="sch_end" class="form-control">
+                            </div>
+                        </div>
+                        <div class="col-md-2">
+                            <button onclick="saveSchedule()" class="btn btn-success w-100">ยืนยัน</button>
+                        </div>
+                    </div>
+                    <hr>
+                    <h6 class="text-muted">รายการเวรปัจจุบัน</h6>
+                    <table class="table table-sm">
+                        <thead><tr><th>ID</th><th>กะที่ได้รับ</th><th>เริ่มวันที่</th><th>สิ้นสุดวันที่</th><th>ลบ</th></tr></thead>
+                        <tbody id="schedTable"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="editModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">✏️ แก้ไขข้อมูลพนักงาน</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body text-center">
+    <img id="edit_preview" src="" class="avatar-img mb-3" style="width: 120px; height: 120px; object-fit: cover;">
+    
+    <input type="hidden" id="edit_id">
+    
+    <div class="mb-3 text-start">
+        <label class="form-label small text-muted">เปลี่ยนรูปโปรไฟล์ (ถ้ามี)</label>
+        <input type="file" id="edit_file" class="form-control form-control-sm" accept="image/*" onchange="previewEditImage(this)">
+    </div>
+
+    <input type="text" id="edit_name" class="form-control mb-3" placeholder="ชื่อ-นามสกุล">
+    <select id="edit_role" class="form-select mb-3">
+        <option value="รปภ">รปภ.</option>
+        <option value="แม่บ้าน">แม่บ้าน</option>
+        <option value="นักศึกษา">นักศึกษาฝึกงาน</option>
+        <option value="พนักงานทั่วไป">พนักงานทั่วไป</option>
+    </select>
+    <button onclick="confirmUpdate()" class="btn btn-primary w-100">💾 บันทึกการเปลี่ยนแปลง</button>
+</div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <script>
+        // --- 1. โหลดข้อมูลพนักงาน ---
+        async function loadEmployees() {
+            const res = await fetch('/api/employees');
+            const data = await res.json();
+            document.getElementById('userCount').innerText = `${data.length} คน`;
+            
+            const tbody = document.getElementById('empTableBody');
+            tbody.innerHTML = '';
+            
+            data.forEach(user => {
+                // เลือกสี Badge ตามตำแหน่ง
+                let roleClass = 'role-staff';
+                if(user.role === 'รปภ') roleClass = 'role-guard';
+                else if(user.role === 'แม่บ้าน') roleClass = 'role-maid';
+                else if(user.role === 'นักศึกษา') roleClass = 'role-intern';
+
+                // จัดการ Path รูปภาพ (ถ้ารูปไม่มีให้ใช้ Dummy)
+                // หมายเหตุ: user.image_path อาจจะเป็น 'images/1001.jpg' หรือ 'C:/project/images/...' 
+                // เราต้องแน่ใจว่า Web Server mount static files ไว้ที่ /images แล้ว
+                let imgSrc = `/${user.image_path}`.replace('//', '/'); 
+                
+                tbody.innerHTML += `
+                    <tr>
+                        <td>
+                            <img src="${imgSrc}" class="avatar-img" 
+                                 onerror="this.src='https://ui-avatars.com/api/?name=${user.name}&background=random'">
+                        </td>
+                        <td class="fw-bold text-secondary">${user.employee_id}</td>
+                        <td>${user.name}</td>
+                        <td><span class="badge badge-role ${roleClass}">${user.role}</span></td>
+                        <td class="text-end">
+                            <button class="btn btn-sm btn-outline-warning me-1" 
+                                onclick="openEdit('${user.employee_id}', '${user.name}', '${user.role}', '${imgSrc}')">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                            <button class="btn btn-sm btn-outline-danger" onclick="deleteUser('${user.employee_id}')">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            });
+        }
+
+        // --- 2. ฟังก์ชันจัดการ (Add / Edit / Delete) ---
+        async function registerUser() {
+            const fd = new FormData();
+            fd.append('emp_id', document.getElementById('reg_id').value);
+            fd.append('name', document.getElementById('reg_name').value);
+            fd.append('role', document.getElementById('reg_role').value);
+            fd.append('file', document.getElementById('reg_file').files[0]);
+
+            if(!document.getElementById('reg_file').files[0]) return alert("กรุณาเลือกรูปภาพ");
+
+            const res = await fetch('/api/register', { method: 'POST', body: fd });
+            if(res.ok) {
+                alert("✅ ลงทะเบียนสำเร็จ");
+                document.getElementById('regForm').reset();
+                loadEmployees();
+            }
+        }
+
+// [ในไฟล์ user_management.html ส่วน <script>]
+
+// ฟังก์ชัน: เมื่อเปิด Modal ให้เคลียร์ค่าไฟล์เดิมออก
+function openEdit(id, name, role, img) {
+    document.getElementById('edit_id').value = id;
+    document.getElementById('edit_name').value = name;
+    document.getElementById('edit_role').value = role;
+    document.getElementById('edit_preview').src = img;
+    
+    // รีเซ็ตช่องเลือกไฟล์ให้ว่างเสมอเมื่อเปิดใหม่
+    document.getElementById('edit_file').value = ""; 
+    
+    new bootstrap.Modal(document.getElementById('editModal')).show();
+}
+
+// ฟังก์ชันใหม่: แสดงตัวอย่างรูปทันทีที่เลือกไฟล์ใหม่
+function previewEditImage(input) {
+    if (input.files && input.files[0]) {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            document.getElementById('edit_preview').src = e.target.result;
+        }
+        reader.readAsDataURL(input.files[0]);
+    }
+}
+
+// ฟังก์ชันแก้ไข: ส่งไฟล์ไปด้วย (ถ้ามี)
+async function confirmUpdate() {
+    const fd = new FormData();
+    fd.append('emp_id', document.getElementById('edit_id').value);
+    fd.append('name', document.getElementById('edit_name').value);
+    fd.append('role', document.getElementById('edit_role').value);
+    
+    // ตรวจสอบว่ามีการเลือกไฟล์ใหม่หรือไม่
+    const fileInput = document.getElementById('edit_file');
+    if (fileInput.files[0]) {
+        fd.append('file', fileInput.files[0]);
+    }
+    
+    // ส่งข้อมูลไปที่ Backend
+    await fetch('/api/employees/update', { method: 'POST', body: fd });
+    
+    bootstrap.Modal.getInstance(document.getElementById('editModal')).hide();
+    loadEmployees(); // รีโหลดตาราง
+}
+
+        async function deleteUser(id) {
+            if(confirm(`ต้องการลบพนักงานรหัส ${id} หรือไม่?`)) {
+                await fetch(`/api/employees/delete/${id}`, { method: 'DELETE' });
+                loadEmployees();
+            }
+        }
+
+        // --- 3. โหลดข้อมูลอื่นๆ (Rules & Schedules) ---
+        async function loadRules() {
+            const res = await fetch('/api/work_rules');
+            const data = await res.json();
+            
+            // ใส่ตาราง
+            document.getElementById('ruleTable').innerHTML = data.map(r => `
+                <tr>
+                    <td>${r.role_name}</td>
+                    <td>${r.start_time}</td>
+                    <td class="text-danger">${r.late_threshold}</td>
+                    <td>${r.end_time}</td>
+                    <td><button onclick="delRule('${r.role_name}')" class="btn btn-sm btn-light text-danger">x</button></td>
+                </tr>`).join('');
+            
+            // ใส่ Dropdown
+            document.getElementById('sch_rule').innerHTML = data.map(r => 
+                `<option value="${r.role_name}">${r.role_name} (${r.start_time}-${r.end_time})</option>`
+            ).join('');
+        }
+
+        async function saveRule() {
+            const fd = new FormData();
+            fd.append('role_name', document.getElementById('rule_name').value);
+            fd.append('start_time', document.getElementById('s_time').value);
+            fd.append('late_threshold', document.getElementById('l_time').value);
+            fd.append('end_time', document.getElementById('e_time').value);
+            await fetch('/api/work_rules/save', { method: 'POST', body: fd });
+            loadRules();
+        }
+
+        async function delRule(name) {
+            if(confirm('ลบกะนี้?')) { await fetch(`/api/work_rules/delete/${name}`, {method:'DELETE'}); loadRules(); }
+        }
+
+        async function loadSchedules() {
+            const res = await fetch('/api/schedules');
+            const data = await res.json();
+            document.getElementById('schedTable').innerHTML = data.map(s => `
+                <tr>
+                    <td>${s.employee_id}</td>
+                    <td><span class="badge bg-info text-dark">${s.role_name}</span></td>
+                    <td>${s.start_date}</td>
+                    <td>${s.end_date}</td>
+                    <td><button onclick="delSched(${s.id})" class="btn btn-sm btn-light text-danger">x</button></td>
+                </tr>`).join('');
+        }
+        
+        async function saveSchedule() {
+            const fd = new FormData();
+            fd.append('emp_id', document.getElementById('sch_id').value);
+            fd.append('role_name', document.getElementById('sch_rule').value);
+            fd.append('start_date', document.getElementById('sch_start').value);
+            fd.append('end_date', document.getElementById('sch_end').value);
+            await fetch('/api/schedule/assign', { method: 'POST', body: fd });
+            loadSchedules();
+        }
+        async function delSched(id) {
+            if(confirm('ยกเลิกตารางเวรนี้?')) { await fetch(`/api/schedules/delete/${id}`, {method:'DELETE'}); loadSchedules(); }
+        }
+
+        // เริ่มต้นทำงาน
+        loadEmployees();
+        loadRules();
+        loadSchedules();
+    </script>
+</body>
+</html>
