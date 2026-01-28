@@ -45,7 +45,7 @@ default_config = {
     "db_name": "attendance_system",
     "camera_width": 640,
     "camera_height": 480,
-    "process_interval": 5,
+    "process_interval": 15,
     "camera_index": 0,
     "telegram_bot_token": "", 
     "telegram_chat_id": "",

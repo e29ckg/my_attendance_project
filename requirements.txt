@@ -9,3 +9,6 @@ pandas
 openpyxl
 jinja2
 python-multipart
+psutil
+PyQt6 
+psutil
