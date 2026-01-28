@@ -30,3 +30,5 @@ weights/
 
 # --- Logs ---
 *.log
+
+config.json
