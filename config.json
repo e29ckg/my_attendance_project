@@ -3,7 +3,7 @@
     "threshold": 0.3,
     "late_time": "09:00",
     "enable_voice": false,
-    "enable_cooldown": true,
+    "enable_cooldown": false,
     "db_host": "localhost",
     "db_user": "root",
     "db_password": "",
@@ -11,5 +11,9 @@
     "camera_width": 640,
     "camera_height": 480,
     "process_interval": 5,
-    "camera_index": 1
+    "camera_index": 0,
+    "telegram_bot_token": "",
+    "telegram_chat_id": "",
+    "enable_telegram": false,
+    "enable_liveness": false
 }
