@@ -53,7 +53,7 @@ source venv/bin/activate
 
 # ติดตั้ง dependencies
 pip install opencv-python deepface pyqt6 fastapi uvicorn mysql-connector-python pandas requests jinja2 python-multipart tf-keras pillow winsound
-
+pip install -r requirements.txt
 ```
 
 *(หมายเหตุ: `winsound` มีมาให้แล้วใน Windows หากใช้ OS อื่นต้องตัดส่วนนี้ออก)*
