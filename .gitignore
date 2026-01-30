@@ -30,5 +30,6 @@ weights/
 
 # --- Logs ---
 *.log
+*.json
 
-config.json
+*.db
