@@ -72,12 +72,15 @@
                                     <input type="text" id="reg_name" class="form-control" placeholder="ภาษาไทย" required>
                                 </div>
                                 <div class="mb-3">
-                                    <label class="form-label small text-muted">ตำแหน่ง/กลุ่ม</label>
-                                    <select id="reg_role" class="form-select">
-                                        <option value="รปภ">รปภ.</option>
-                                        <option value="แม่บ้าน">แม่บ้าน</option>
-                                        <option value="นักศึกษา">นักศึกษาฝึกงาน</option>
+                                    <label class="form-label">ประเภท/ตำแหน่ง:</label>
+                                    <select class="form-select" id="edit_role" v-model="editForm.role">
                                         <option value="พนักงานทั่วไป">พนักงานทั่วไป</option>
+                                        <option value="รปภ">รปภ.</option>
+                                        <option value="แม่บ้านอาคาร">แม่บ้านอาคาร</option>
+                                        <option value="แม่บ้านอาคารชุด1">แม่บ้านอาคารชุด1</option>
+                                        <option value="แม่บ้านอาคารชุด2">แม่บ้านอาคารชุด2</option>
+                                        <option value="คนสวน">คนสวน</option>
+                                        <option value="นักศึกษา">นักศึกษา</option>
                                     </select>
                                 </div>
                                 <div class="mb-3">
@@ -186,24 +189,30 @@
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body text-center">
-    <img id="edit_preview" src="" class="avatar-img mb-3" style="width: 120px; height: 120px; object-fit: cover;">
-    
-    <input type="hidden" id="edit_id">
-    
-    <div class="mb-3 text-start">
-        <label class="form-label small text-muted">เปลี่ยนรูปโปรไฟล์ (ถ้ามี)</label>
-        <input type="file" id="edit_file" class="form-control form-control-sm" accept="image/*" onchange="previewEditImage(this)">
-    </div>
+                    <img id="edit_preview" src="" class="avatar-img mb-3" style="width: 120px; height: 120px; object-fit: cover;">
+                    
+                    <input type="hidden" id="edit_id">
+                    
+                    <div class="mb-3 text-start">
+                        <label class="form-label small text-muted">เปลี่ยนรูปโปรไฟล์ (ถ้ามี)</label>
+                        <input type="file" id="edit_file" class="form-control form-control-sm" accept="image/*" onchange="previewEditImage(this)">
+                    </div>
 
-    <input type="text" id="edit_name" class="form-control mb-3" placeholder="ชื่อ-นามสกุล">
-    <select id="edit_role" class="form-select mb-3">
-        <option value="รปภ">รปภ.</option>
-        <option value="แม่บ้าน">แม่บ้าน</option>
-        <option value="นักศึกษา">นักศึกษาฝึกงาน</option>
-        <option value="พนักงานทั่วไป">พนักงานทั่วไป</option>
-    </select>
-    <button onclick="confirmUpdate()" class="btn btn-primary w-100">💾 บันทึกการเปลี่ยนแปลง</button>
-</div>
+                    <input type="text" id="edit_name" class="form-control mb-3" placeholder="ชื่อ-นามสกุล">
+                    <div class="mb-3">
+                                    <label class="form-label">ประเภท/ตำแหน่ง:</label>
+                                    <select class="form-select" id="edit_role" v-model="editForm.role">
+                                        <option value="พนักงานทั่วไป">พนักงานทั่วไป</option>
+                                        <option value="รปภ">รปภ.</option>
+                                        <option value="แม่บ้านอาคาร">แม่บ้านอาคาร</option>
+                                        <option value="แม่บ้านอาคารชุด1">แม่บ้านอาคารชุด1</option>
+                                        <option value="แม่บ้านอาคารชุด2">แม่บ้านอาคารชุด2</option>
+                                        <option value="คนสวน">คนสวน</option>
+                                        <option value="นักศึกษา">นักศึกษา</option>
+                                    </select>
+                                </div>
+                    <button onclick="confirmUpdate()" class="btn btn-primary w-100">💾 บันทึกการเปลี่ยนแปลง</button>
+                </div>
             </div>
         </div>
     </div>

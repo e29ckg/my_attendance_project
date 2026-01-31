@@ -63,9 +63,15 @@ class FaceAIThread(QThread):
 
     def __init__(self, config):
         super().__init__()
-        self.config = config; self.current_frame = None; self.is_running = True
+        self.config = config
+        self.current_frame = None
+        self.is_running = True
         self.known_embeddings, self.known_ids, self.known_names = [], [], []
         self.last_recorded = {} # เก็บเวลาล่าสุดที่สแกนของแต่ละคน
+        
+        # [NEW] ตัวแปรสำหรับนับเฟรมเพื่อข้ามการประมวลผล
+        self.frame_counter = 0
+        self.skip_limit = config.get("frame_skip", 5) # ค่า Default คือข้าม 5 เฟรม ทำ 1 เฟรม
 
     def load_faces(self):
         print(">>> Loading Faces...")
@@ -93,14 +99,29 @@ class FaceAIThread(QThread):
     def run(self):
         self.load_faces()
         face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+        
         while self.is_running:
             if self.current_frame is not None:
+                
+                # [NEW] Logic 1: Auto-Skip Frame (ลดภาระ CPU)
+                self.frame_counter += 1
+                if self.frame_counter < self.skip_limit:
+                    self.current_frame = None
+                    self.msleep(20) # พักสั้นๆ แล้ววนลูปใหม่เลย ไม่ต้องทำ AI
+                    continue
+                
+                self.frame_counter = 0 # ครบรอบแล้ว รีเซ็ตตัวนับ
+
                 frame = self.current_frame.copy()
-                small = cv2.resize(frame, (0,0), fx=0.5, fy=0.5)
+
+                # [NEW] Logic 2: ลดขนาดภาพเหลือ 25% (0.25) เพื่อให้ AI เร็วขึ้น
+                small = cv2.resize(frame, (0,0), fx=0.25, fy=0.25)
+                
                 faces = face_cascade.detectMultiScale(cv2.cvtColor(small, cv2.COLOR_BGR2GRAY), 1.2, 5)
                 res = []
                 for (x, y, w, h) in faces:
-                    rx, ry, rw, rh = x*2, y*2, w*2, h*2 
+                    # [NEW] ปรับตัวคูณพิกัดกลับ (คูณ 4 เพราะเราย่อลงมา 0.25)
+                    rx, ry, rw, rh = x*4, y*4, w*4, h*4 
                     try:
                         face_rgb = cv2.cvtColor(frame[ry:ry+rh, rx:rx+rw], cv2.COLOR_BGR2RGB)
                         rep = DeepFace.represent(img_path=face_rgb, model_name="Facenet512", enforce_detection=False)
@@ -114,7 +135,9 @@ class FaceAIThread(QThread):
                             else: res.append((rx, ry, rw, rh, "Unknown", "FAIL"))
                     except: pass
                 self.result_ready.emit(res); self.current_frame = None
-            self.msleep(100)
+            
+            # ลดเวลาพักลงเล็กน้อยเพื่อให้ UI ตอบสนองไวขึ้นในจังหวะที่ไม่ได้ประมวลผล
+            self.msleep(10)
 
     def process_scan(self, emp_id, name, frame):
         now = datetime.now()
@@ -239,12 +262,32 @@ class ScannerWindow(QMainWindow):
         conn = get_db_conn()
         if conn:
             cur = conn.cursor()
-            cur.execute("SELECT employee_name, strftime('%H:%M:%S', check_time) as t FROM attendance_logs ORDER BY id DESC LIMIT 10")
+            # 1. แก้ SQL: ดึง check_time แบบเต็ม (เดิมดึงแค่ HH:MM:SS)
+            cur.execute("SELECT employee_name, check_time FROM attendance_logs ORDER BY id DESC LIMIT 10")
             data = cur.fetchall()
             self.table.setRowCount(len(data))
+            
             for i, r in enumerate(data):
+                # ชื่อพนักงาน
                 self.table.setItem(i, 0, QTableWidgetItem(r['employee_name']))
-                self.table.setItem(i, 1, QTableWidgetItem(r['t']))
+                
+                # 2. แปลงเวลาเป็นรูปแบบไทย (วัน/เดือน/ปี เวลา)
+                try:
+                    ts = r['check_time']
+                    # ตัดเศษวินาทีทิ้งถ้ามี (เช่น .123456)
+                    if "." in ts: ts = ts.split(".")[0]
+                    
+                    # แปลงข้อความ DB เป็นตัวแปร datetime
+                    dt = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")
+                    
+                    # จัดฟอร์แมตใหม่: 27/01/2569 08:30:05
+                    thai_time_str = f"{dt.day:02}/{dt.month:02}/{dt.year+543} {dt.strftime('%H:%M:%S')}"
+                except Exception as e:
+                    thai_time_str = r['check_time'] # กรณีผิดพลาดให้โชว์ค่าเดิม
+                
+                # ใส่ลงตาราง
+                self.table.setItem(i, 1, QTableWidgetItem(thai_time_str))
+                
             conn.close()
 
 if __name__ == "__main__":
