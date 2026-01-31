@@ -33,3 +33,6 @@ weights/
 *.json
 
 *.db
+*.sqlite3
+sounds/*
+logs/*.log
