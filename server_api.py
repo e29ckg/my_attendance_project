@@ -1,5 +1,8 @@
 import uvicorn
-from fastapi import FastAPI, UploadFile, File, Form
+import shutil
+from fastapi import FastAPI, UploadFile, File, Form # <--- เพิ่ม Form
+from fastapi.staticfiles import StaticFiles # <--- เพิ่ม StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 import cv2
 import numpy as np
 import os
@@ -14,6 +17,17 @@ DB_FILE = "attendance.db"
 THRESHOLD = 0.3
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], # อนุญาตทุกเว็บ (สำหรับใช้งานภายใน)
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+os.makedirs("images", exist_ok=True)
+app.mount("/images", StaticFiles(directory="images"), name="images")
 
 # Global Variables
 known_embeddings = []
@@ -160,6 +174,96 @@ def save_log(emp_id, name, frame):
         print(f"DB Save Error: {e}")
     finally:
         conn.close()
+
+# --- USER MANAGEMENT API ---
+
+@app.get("/api/employees")
+async def get_employees():
+    """ดึงรายชื่อพนักงานทั้งหมด"""
+    conn = get_db_conn()
+    if not conn: return []
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM employees")
+    rows = cur.fetchall()
+    conn.close()
+    return rows
+
+@app.get("/api/roles")
+async def get_roles():
+    """ดึงตำแหน่งทั้งหมด (สำหรับ Dropdown)"""
+    conn = get_db_conn()
+    if not conn: return []
+    cur = conn.cursor()
+    cur.execute("SELECT DISTINCT role FROM employees WHERE role IS NOT NULL AND role != ''")
+    rows = cur.fetchall()
+    conn.close()
+    return [r['role'] for r in rows]
+
+@app.post("/api/register")
+async def register(
+    name: str = Form(...),
+    emp_id: str = Form(...),
+    role: str = Form(...),
+    file: UploadFile = File(...)
+):
+    """ลงทะเบียนพนักงานใหม่ + สร้าง Embedding ทันที"""
+    try:
+        # 1. บันทึกไฟล์รูปภาพ
+        file_path = f"images/{emp_id}.jpg"
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+
+        # 2. สร้าง Embedding ทันที (เพื่อให้สแกนได้เลยไม่ต้องรอ)
+        embedding_json = None
+        try:
+            objs = DeepFace.represent(img_path=file_path, model_name="Facenet512", enforce_detection=False)
+            if objs:
+                embedding_json = json.dumps(objs[0]["embedding"])
+        except Exception as e:
+            print(f"Embedding Error: {e}")
+
+        # 3. บันทึกลงฐานข้อมูล
+        conn = get_db_conn()
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT OR REPLACE INTO employees (employee_id, name, role, image_path, embedding)
+            VALUES (?, ?, ?, ?, ?)
+        """, (emp_id, name, role, file_path, embedding_json))
+        conn.commit()
+        conn.close()
+
+        # 4. รีโหลดหน้าเข้า RAM (Hot Reload)
+        load_faces()
+        
+        return {"status": "success", "message": f"ลงทะเบียน {name} เรียบร้อย"}
+
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@app.delete("/api/employees/delete/{emp_id}")
+async def delete_employee(emp_id: str):
+    """ลบพนักงาน"""
+    try:
+        conn = get_db_conn()
+        cur = conn.cursor()
+        
+        # ลบรูปภาพ
+        cur.execute("SELECT image_path FROM employees WHERE employee_id = ?", (emp_id,))
+        row = cur.fetchone()
+        if row and row['image_path'] and os.path.exists(row['image_path']):
+            os.remove(row['image_path'])
+            
+        # ลบจาก DB
+        cur.execute("DELETE FROM employees WHERE employee_id = ?", (emp_id,))
+        conn.commit()
+        conn.close()
+
+        # รีโหลดหน้าเข้า RAM (Hot Reload)
+        load_faces()
+        
+        return {"status": "success", "message": f"ลบ {emp_id} เรียบร้อย"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 @app.get("/health")
 async def health_check():

@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <title>จัดการพนักงาน - Face Recognition</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <style>
+        body { font-family: 'Sarabun', sans-serif; background-color: #f8f9fa; }
+        .card-img-top { height: 200px; object-fit: cover; }
+    </style>
+</head>
+<body class="p-4">
+    <div class="container">
+        <h2 class="mb-4">👥 จัดการรายชื่อพนักงาน</h2>
+        
+        <div class="card p-4 mb-4 shadow-sm">
+            <h5>➕ ลงทะเบียนพนักงานใหม่</h5>
+            <form id="addForm" class="row g-3">
+                <div class="col-md-3">
+                    <input type="text" class="form-control" id="empId" placeholder="รหัสพนักงาน" required>
+                </div>
+                <div class="col-md-3">
+                    <input type="text" class="form-control" id="empName" placeholder="ชื่อ-นามสกุล" required>
+                </div>
+                <div class="col-md-3">
+                    <input type="text" class="form-control" id="empRole" placeholder="ตำแหน่ง" required>
+                </div>
+                <div class="col-md-3">
+                    <input type="file" class="form-control" id="empPhoto" accept="image/*" required>
+                </div>
+                <div class="col-12 text-end">
+                    <button type="submit" class="btn btn-primary">บันทึกข้อมูล</button>
+                </div>
+            </form>
+        </div>
+
+        <div class="card p-4 shadow-sm">
+            <h5>📋 รายชื่อพนักงานทั้งหมด</h5>
+            <div id="employeeList" class="row g-4 mt-2">
+                </div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = "http://localhost:9876"; // ⚠️ ถ้าเปิดคนละเครื่อง ต้องแก้เป็น IP Server
+
+        // 1. โหลดรายชื่อ
+        async function loadEmployees() {
+            try {
+                const res = await axios.get(`${API_URL}/api/employees`);
+                const list = document.getElementById('employeeList');
+                list.innerHTML = "";
+                
+                res.data.forEach(emp => {
+                    // ใช้ Timestamp เพื่อแก้ปัญหา Browser จําภาพเก่า (Cache)
+                    const imgUrl = `${API_URL}/${emp.image_path}?t=${new Date().getTime()}`;
+                    
+                    const html = `
+                    <div class="col-md-3 col-6">
+                        <div class="card h-100">
+                            <img src="${imgUrl}" class="card-img-top" onerror="this.src='https://via.placeholder.com/200'">
+                            <div class="card-body text-center">
+                                <h5 class="card-title">${emp.name}</h5>
+                                <p class="card-text text-muted">${emp.role} (${emp.employee_id})</p>
+                                <button onclick="deleteEmp('${emp.employee_id}')" class="btn btn-danger btn-sm">ลบ</button>
+                            </div>
+                        </div>
+                    </div>`;
+                    list.innerHTML += html;
+                });
+            } catch (e) { console.error(e); }
+        }
+
+        // 2. เพิ่มพนักงาน
+        document.getElementById('addForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const formData = new FormData();
+            formData.append('emp_id', document.getElementById('empId').value);
+            formData.append('name', document.getElementById('empName').value);
+            formData.append('role', document.getElementById('empRole').value);
+            formData.append('file', document.getElementById('empPhoto').files[0]);
+
+            try {
+                alert("⏳ กำลังประมวลผล AI กรุณารอสักครู่...");
+                await axios.post(`${API_URL}/api/register`, formData);
+                alert("✅ เพิ่มพนักงานเรียบร้อย!");
+                document.getElementById('addForm').reset();
+                loadEmployees();
+            } catch (e) { 
+                alert("❌ เกิดข้อผิดพลาด: " + e.message); 
+            }
+        });
+
+        // 3. ลบพนักงาน
+        async function deleteEmp(id) {
+            if(!confirm(`ต้องการลบรหัส ${id} ใช่หรือไม่?`)) return;
+            try {
+                await axios.delete(`${API_URL}/api/employees/delete/${id}`);
+                loadEmployees();
+            } catch (e) { alert("ลบไม่สำเร็จ"); }
+        }
+
+        // เริ่มทำงานเมื่อเปิดหน้าเว็บ
+        loadEmployees();
+    </script>
+</body>
+</html>
