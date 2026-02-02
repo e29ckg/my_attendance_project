@@ -49,7 +49,14 @@ def init_system():
         cur = conn.cursor()
         cur.execute("""CREATE TABLE IF NOT EXISTS employees (employee_id TEXT PRIMARY KEY, name TEXT, role TEXT, image_path TEXT, embedding TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
         cur.execute("""CREATE TABLE IF NOT EXISTS attendance_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, employee_id TEXT, employee_name TEXT, check_time DATETIME, evidence_image TEXT, log_type TEXT DEFAULT 'SCAN', status TEXT DEFAULT '-')""")
+        cur.execute("""CREATE TABLE IF NOT EXISTS daily_remarks (
+            date_str TEXT, 
+            employee_id TEXT, 
+            remark TEXT, 
+            PRIMARY KEY (date_str, employee_id)
+        )""")
         conn.commit(); conn.close()
+
     
     # 2. โหลดหน้าเข้า RAM
     load_faces()
@@ -175,6 +182,8 @@ def save_log(emp_id, name, frame):
     finally:
         conn.close()
 
+        
+
 # --- USER MANAGEMENT API ---
 
 @app.get("/api/employees")
@@ -262,6 +271,113 @@ async def delete_employee(emp_id: str):
         load_faces()
         
         return {"status": "success", "message": f"ลบ {emp_id} เรียบร้อย"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+    
+# --- REPORT API ---
+
+@app.get("/api/report/daily")
+async def get_daily_report(date: str, role: str = "all"):
+    """
+    ดึงรายงานสรุปรายวัน: 
+    - เวลาเข้า = สแกนครั้งแรกของวัน
+    - เวลาออก = สแกนครั้งสุดท้ายของวัน
+    """
+    conn = get_db_conn()
+    if not conn: return []
+    cur = conn.cursor()
+    
+    # 1. ดึงพนักงานตาม Role ที่เลือก
+    if role == "all":
+        cur.execute("SELECT employee_id, name, role FROM employees")
+    else:
+        cur.execute("SELECT employee_id, name, role FROM employees WHERE role = ?", (role,))
+    employees = cur.fetchall()
+    
+    # 2. ดึง Log ทั้งหมดของวันที่เลือก *เรียงตามเวลา* (สำคัญมาก)
+    cur.execute("""
+        SELECT employee_id, check_time 
+        FROM attendance_logs 
+        WHERE date(check_time) = ? 
+        ORDER BY check_time ASC
+    """, (date,))
+    all_logs = cur.fetchall()
+    
+    # จัดกลุ่ม Log ตามพนักงานเพื่อลดการวนลูป
+    logs_by_emp = {}
+    for log in all_logs:
+        eid = log['employee_id']
+        if eid not in logs_by_emp: logs_by_emp[eid] = []
+        logs_by_emp[eid].append(log['check_time'])
+
+    # 3. ดึงหมายเหตุ
+    cur.execute("SELECT employee_id, remark FROM daily_remarks WHERE date_str = ?", (date,))
+    remarks_db = cur.fetchall()
+    remarks_map = {r['employee_id']: r['remark'] for r in remarks_db}
+
+    report_data = []
+    
+    for emp in employees:
+        e_id = emp['employee_id']
+        e_name = emp['name']
+        
+        times = logs_by_emp.get(e_id, []) # รายการเวลาทั้งหมดของคนนี้
+        
+        time_in = "-"
+        time_out = "-"
+        
+        if times:
+            # --- LOGIC การดึงเวลา ---
+            
+            # 1. เวลาเข้า = เวลาแรกสุด (ตัวแรกของ list)
+            try:
+                # ตัดเศษวินาทีทิ้ง (.123456) ถ้ามี
+                t_str_in = times[0].split(".")[0] 
+                dt_in = datetime.strptime(t_str_in, "%Y-%m-%d %H:%M:%S")
+                time_in = dt_in.strftime("%H:%M:%S")
+            except:
+                time_in = times[0].split(" ")[1] # กรณี format แปลกๆ ให้ตัดเอาแค่เวลา
+
+            # 2. เวลาออก = เวลาสุดท้าย (ตัวสุดท้ายของ list)
+            # เงื่อนไข: ต้องมีการสแกนมากกว่า 1 ครั้ง ถึงจะมีเวลาออก
+            if len(times) > 1:
+                try:
+                    t_str_out = times[-1].split(".")[0]
+                    dt_out = datetime.strptime(t_str_out, "%Y-%m-%d %H:%M:%S")
+                    time_out = dt_out.strftime("%H:%M:%S")
+                except:
+                     time_out = times[-1].split(" ")[1]
+
+        report_data.append({
+            "employee_id": e_id,
+            "name": e_name,
+            "role": emp['role'],
+            "time_in": time_in,
+            "time_out": time_out,
+            "remark": remarks_map.get(e_id, "")
+        })
+        
+    conn.close()
+    return report_data
+
+@app.post("/api/report/remark")
+async def update_remark(
+    date: str = Form(...),
+    employee_id: str = Form(...),
+    remark: str = Form(...)
+):
+    """อัปเดตหมายเหตุรายวัน"""
+    try:
+        conn = get_db_conn()
+        cur = conn.cursor()
+        # ใช้ Insert or Replace เพื่อบันทึกทับได้เลย
+        cur.execute("""
+            INSERT OR REPLACE INTO daily_remarks (date_str, employee_id, remark)
+            VALUES (?, ?, ?)
+        """, (date, employee_id, remark))
+        conn.commit()
+        conn.close()
+        return {"status": "success"}
     except Exception as e:
         return {"status": "error", "message": str(e)}
 

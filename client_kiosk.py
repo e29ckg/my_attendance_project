@@ -16,8 +16,9 @@ import pygame
 # --- CONFIG ---
 # ⚠️ เปลี่ยน localhost เป็น IP ของเครื่อง Server (เช่น http://192.168.1.50:9876)
 SERVER_URL = "http://localhost:9876" 
-CAMERA_INDEX = 0
+CAMERA_INDEX = 1  # ปรับเลขกล้องตามต้องการ (0=กล้องหลัก, 1=กล้องเสริม)
 CHECK_INTERVAL = 5  # เช็ค Server ทุก 5 วินาที
+
 
 # เริ่มระบบเสียง
 try:
