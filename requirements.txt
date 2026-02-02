@@ -1,14 +1,19 @@
+# --- Core AI & Image Processing ---
+deepface
+opencv-python
+numpy
+pillow
+
+# --- Server (API & Database) ---
 fastapi
 uvicorn
-opencv-python
-deepface
-tf-keras
-numpy
-mysql-connector-python
-pandas
-openpyxl
-jinja2
 python-multipart
-psutil
+requests
+
+# --- Client (GUI & Audio) ---
 PyQt6
-xlsxwriter
+gTTS
+pygame
+
+# --- Utilities ---
+# (winsound มีมากับ Python Windows อยู่แล้ว ไม่ต้อง install)
