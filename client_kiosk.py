@@ -273,7 +273,7 @@ class ClientWindow(QMainWindow):
             
         else:
             # กรณีสแกนไม่ผ่าน
-            winsound.Beep(500, 300)
+            # winsound.Beep(500, 300)
             self.lbl_action.setText("❌ ไม่พบข้อมูล / กรุณาลองใหม่")
             self.lbl_action.setStyleSheet("font-size: 24px; font-weight: bold; color: red; margin-top: 15px;")
 

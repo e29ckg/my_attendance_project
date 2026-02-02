@@ -3,6 +3,7 @@ import shutil
 from fastapi import FastAPI, UploadFile, File, Form # <--- เพิ่ม Form
 from fastapi.staticfiles import StaticFiles # <--- เพิ่ม StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 import cv2
 import numpy as np
 import os
@@ -10,11 +11,19 @@ import json
 import sqlite3
 from datetime import datetime
 from deepface import DeepFace
+from typing import Optional
+import requests
+import threading
 
 # --- CONFIG ---
 DB_FILE = "attendance.db"
 # ค่าความเหมือน (ยิ่งน้อยยิ่งเข้มงวด)
 THRESHOLD = 0.3
+
+# [เพิ่ม] ตั้งค่า Telegram
+ENABLE_TELEGRAM = True
+TELEGRAM_TOKEN = "7785178042:AAHHa-qbxlyJy7Ff0F3QS_F0NEQr5Qbk3Wc"
+TELEGRAM_CHAT_ID = "7873635913"
 
 app = FastAPI()
 
@@ -98,6 +107,25 @@ def load_faces():
 async def startup_event():
     init_system()
 
+
+# --- [เพิ่มส่วนนี้] WEB ROUTES (สำหรับเปิดหน้าเว็บ) ---
+
+@app.get("/")
+async def index():
+    """หน้าแรก: รวมเมนู"""
+    return FileResponse("index.html") # (เดี๋ยวเราสร้างไฟล์นี้เพิ่มเป็นเมนูรวม)
+
+@app.get("/admin")
+async def view_admin():
+    """เปิดหน้าจัดการพนักงาน"""
+    return FileResponse("admin.html")
+
+@app.get("/report")
+async def view_report():
+    """เปิดหน้ารายงาน"""
+    return FileResponse("report_daily.html")
+
+# --- FACE SCAN API ---
 @app.post("/scan")
 async def scan_face(file: UploadFile = File(...)):
     """
@@ -149,6 +177,27 @@ async def scan_face(file: UploadFile = File(...)):
     except Exception as e:
         print(f"Error: {e}")
         return {"status": "ERROR", "name": "System Error"}
+    
+def send_telegram_thread(name, time_str, img_path):
+    """ฟังก์ชันส่งไลน์/Telegram แยก Thread เพื่อไม่ให้ Server หน่วง"""
+    if not ENABLE_TELEGRAM: return
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
+        caption = f"✅ <b>ลงเวลาสำเร็จ</b>\n👤 <b>ชื่อ:</b> {name}\n⏰ <b>เวลา:</b> {time_str}"
+        
+        # เปิดไฟล์รูปเพื่อส่ง
+        with open(img_path, 'rb') as f:
+            files = {'photo': f}
+            data = {
+                'chat_id': TELEGRAM_CHAT_ID, 
+                'caption': caption, 
+                'parse_mode': 'HTML'
+            }
+            requests.post(url, files=files, data=data)
+            print(f">>> 🚀 Telegram sent for {name}")
+            
+    except Exception as e:
+        print(f"Telegram Error: {e}")
 
 def save_log(emp_id, name, frame):
     # บันทึกเหมือนเดิม แต่ทำที่ฝั่ง Server
@@ -177,6 +226,12 @@ def save_log(emp_id, name, frame):
                     (emp_id, name, now, img_path, "SCAN", "บันทึกแล้ว"))
         conn.commit()
         print(f"✅ Logged: {name}")
+
+        # ส่ง Telegram แบบแยก Thread
+        if ENABLE_TELEGRAM:
+            time_str = now.strftime("%d/%m/%Y %H:%M:%S")
+            # ใช้ Threading เพื่อให้ Server ตอบกลับ Client ทันทีโดยไม่ต้องรอ Telegram ส่งเสร็จ
+            threading.Thread(target=send_telegram_thread, args=(name, time_str, img_path)).start()
     except Exception as e:
         print(f"DB Save Error: {e}")
     finally:
@@ -196,6 +251,57 @@ async def get_employees():
     rows = cur.fetchall()
     conn.close()
     return rows
+
+@app.post("/api/employees/update")
+async def update_employee(
+    emp_id: str = Form(...),
+    name: str = Form(...),
+    role: str = Form(...),
+    file: Optional[UploadFile] = File(None) # รูปภาพเป็น Optional (ไม่ต้องส่งมาก็ได้)
+):
+    """แก้ไขข้อมูลพนักงาน (ถ้ารูปไม่ส่งมา ให้ใช้รูปเดิม)"""
+    try:
+        conn = get_db_conn()
+        cur = conn.cursor()
+
+        # 1. ถ้ามีการอัปโหลดรูปใหม่ -> ทำ DeepFace ใหม่
+        if file:
+            file_path = f"images/{emp_id}.jpg"
+            with open(file_path, "wb") as buffer:
+                shutil.copyfileobj(file.file, buffer)
+            
+            embedding_json = None
+            try:
+                objs = DeepFace.represent(img_path=file_path, model_name="Facenet512", enforce_detection=False)
+                if objs:
+                    embedding_json = json.dumps(objs[0]["embedding"])
+            except: pass
+            
+            # อัปเดตทุกอย่างรวมถึงรูปและ embedding
+            cur.execute("""
+                UPDATE employees 
+                SET name=?, role=?, image_path=?, embedding=?
+                WHERE employee_id=?
+            """, (name, role, file_path, embedding_json, emp_id))
+            
+        else:
+            # 2. ถ้าไม่มีรูปใหม่ -> อัปเดตแค่ชื่อและตำแหน่ง
+            cur.execute("""
+                UPDATE employees 
+                SET name=?, role=?
+                WHERE employee_id=?
+            """, (name, role, emp_id))
+
+        conn.commit()
+        conn.close()
+
+        # รีโหลดหน้าเข้า RAM
+        load_faces()
+        
+        return {"status": "success", "message": f"อัปเดตข้อมูล {name} เรียบร้อย"}
+
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 @app.get("/api/roles")
 async def get_roles():
@@ -276,25 +382,29 @@ async def delete_employee(emp_id: str):
     
 # --- REPORT API ---
 
+# ค้นหาฟังก์ชัน get_daily_report แล้วแก้ตามนี้ครับ
+
 @app.get("/api/report/daily")
 async def get_daily_report(date: str, role: str = "all"):
     """
     ดึงรายงานสรุปรายวัน: 
-    - เวลาเข้า = สแกนครั้งแรกของวัน
-    - เวลาออก = สแกนครั้งสุดท้ายของวัน
+    - เวลาเข้า = สแกนครั้งแรก
+    - เวลาออก = สแกนครั้งสุดท้าย
+    - [NEW] เรียงลำดับตามเวลาเข้า (มาก่อนอยู่บน)
     """
     conn = get_db_conn()
     if not conn: return []
     cur = conn.cursor()
     
-    # 1. ดึงพนักงานตาม Role ที่เลือก
+    # ... (ส่วนที่ 1-3 ดึง employees, logs, remarks เหมือนเดิมเป๊ะๆ) ...
+    # 1. ดึงพนักงาน
     if role == "all":
         cur.execute("SELECT employee_id, name, role FROM employees")
     else:
         cur.execute("SELECT employee_id, name, role FROM employees WHERE role = ?", (role,))
     employees = cur.fetchall()
     
-    # 2. ดึง Log ทั้งหมดของวันที่เลือก *เรียงตามเวลา* (สำคัญมาก)
+    # 2. ดึง Log
     cur.execute("""
         SELECT employee_id, check_time 
         FROM attendance_logs 
@@ -303,7 +413,6 @@ async def get_daily_report(date: str, role: str = "all"):
     """, (date,))
     all_logs = cur.fetchall()
     
-    # จัดกลุ่ม Log ตามพนักงานเพื่อลดการวนลูป
     logs_by_emp = {}
     for log in all_logs:
         eid = log['employee_id']
@@ -317,36 +426,29 @@ async def get_daily_report(date: str, role: str = "all"):
 
     report_data = []
     
+    # 4. วนลูปคำนวณเวลา (เหมือนเดิม)
     for emp in employees:
         e_id = emp['employee_id']
         e_name = emp['name']
         
-        times = logs_by_emp.get(e_id, []) # รายการเวลาทั้งหมดของคนนี้
+        times = logs_by_emp.get(e_id, [])
         
         time_in = "-"
         time_out = "-"
         
         if times:
-            # --- LOGIC การดึงเวลา ---
-            
-            # 1. เวลาเข้า = เวลาแรกสุด (ตัวแรกของ list)
             try:
-                # ตัดเศษวินาทีทิ้ง (.123456) ถ้ามี
-                t_str_in = times[0].split(".")[0] 
+                # เวลาเข้า
+                t_str_in = times[0].split(".")[0]
                 dt_in = datetime.strptime(t_str_in, "%Y-%m-%d %H:%M:%S")
                 time_in = dt_in.strftime("%H:%M:%S")
-            except:
-                time_in = times[0].split(" ")[1] # กรณี format แปลกๆ ให้ตัดเอาแค่เวลา
-
-            # 2. เวลาออก = เวลาสุดท้าย (ตัวสุดท้ายของ list)
-            # เงื่อนไข: ต้องมีการสแกนมากกว่า 1 ครั้ง ถึงจะมีเวลาออก
-            if len(times) > 1:
-                try:
+                
+                # เวลาออก (ต้องมีมากกว่า 1 ครั้ง)
+                if len(times) > 1:
                     t_str_out = times[-1].split(".")[0]
                     dt_out = datetime.strptime(t_str_out, "%Y-%m-%d %H:%M:%S")
                     time_out = dt_out.strftime("%H:%M:%S")
-                except:
-                     time_out = times[-1].split(" ")[1]
+            except: pass
 
         report_data.append({
             "employee_id": e_id,
@@ -358,6 +460,11 @@ async def get_daily_report(date: str, role: str = "all"):
         })
         
     conn.close()
+
+    # --- [เพิ่มส่วนนี้] เรียงลำดับข้อมูลก่อนส่งกลับ ---
+    # Logic: ถ้ามีเวลาให้ใช้เวลานั้น, ถ้าเป็น "-" ให้เป็นค่ามากสุด (เช่น "99:99:99") จะได้ไปอยู่ล่างสุด
+    report_data.sort(key=lambda x: x['time_in'] if x['time_in'] != "-" else "99:99:99")
+
     return report_data
 
 @app.post("/api/report/remark")
