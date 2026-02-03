@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <title>พิมพ์บัญชีลงเวลา - Time Attendance</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+    <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;600&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    
+    <style>
+        body { font-family: 'Sarabun', sans-serif; background-color: #f4f6f9; color: #000; }
+        .navbar { box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        
+        /* A4 Page Style */
+        .a4-page {
+            width: 210mm; min-height: 297mm; background: white;
+            padding: 20mm; margin: 20px auto;
+            box-shadow: 0 0 15px rgba(0,0,0,0.1); position: relative;
+        }
+        .table-official { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        .table-official th, .table-official td { border: 1px solid black; padding: 8px; vertical-align: middle; font-size: 14px; }
+        .table-official th { text-align: center; font-weight: bold; background-color: #f8f9fa; }
+        .header-text { text-align: center; font-weight: bold; line-height: 1.5; margin-bottom: 20px; }
+        .footer-section { margin-top: 40px; font-size: 14px; }
+        .dot-line { border-bottom: 1px dotted #000; display: inline-block; min-width: 150px; text-align: center; }
+        .stat-row { display: flex; justify-content: space-between; margin-bottom: 5px; }
+
+        @media print {
+            body { background: white; margin: 0; }
+            .no-print { display: none !important; } /* ซ่อน Navbar และปุ่มตอนพิมพ์ */
+            .a4-page { box-shadow: none; margin: 0; width: 100%; padding: 10mm; }
+            -webkit-print-color-adjust: exact; 
+        }
+    </style>
+</head>
+<body>
+
+    <nav class="navbar navbar-expand-lg navbar-light bg-white sticky-top mb-4 no-print">
+        <div class="container">
+            <a class="navbar-brand fw-bold text-primary" href="/"><i class="bi bi-person-bounding-box"></i> HR Face Scan</a>
+            <div class="collapse navbar-collapse">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item"><a class="nav-link" href="/">🏠 หน้าหลัก</a></li>
+                    <li class="nav-item"><a class="nav-link" href="/admin">👥 จัดการพนักงาน</a></li>
+                    <li class="nav-item"><a class="nav-link" href="/report">📊 รายงานรายวัน</a></li>
+                    <li class="nav-item"><a class="nav-link active fw-bold" href="/print">🖨️ พิมพ์แบบฟอร์ม</a></li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mb-4 no-print">
+        <div class="card p-3 shadow-sm">
+            <div class="row g-3 align-items-end">
+                <div class="col-md-3">
+                    <label class="fw-bold">📅 วันที่:</label>
+                    <input type="date" id="selectDate" class="form-control">
+                </div>
+                <div class="col-md-3">
+                    <label class="fw-bold">👤 ประเภท:</label>
+                    <select id="selectRole" class="form-select"><option value="all">ทั้งหมด</option></select>
+                </div>
+                <div class="col-md-2">
+                    <label class="fw-bold">⏰ สาย:</label>
+                    <input type="time" id="lateTime" class="form-control" value="08:30">
+                </div>
+                <div class="col-md-4 text-end">
+                    <button onclick="loadReport()" class="btn btn-primary me-2"><i class="bi bi-search"></i> ดู</button>
+                    <button onclick="window.print()" class="btn btn-success"><i class="bi bi-printer"></i> พิมพ์</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="a4-page">
+        <div class="header-text">
+            บัญชีลงเวลาการปฏิบัติงาน<br>
+            <span contenteditable="true">งานจ้างเหมาให้บริการบริหารงานระบบและซ่อมบำรุงระบบวิศวกรรม</span><br>
+            <span contenteditable="true">อาคารศาลเยาวชนและครอบครัวจังหวัดประจวบคีรีขันธ์ ประจำปีงบประมาณ พ.ศ. 2569</span><br>
+            <span id="dateHeader">วันที่ ...</span>
+        </div>
+
+        <table class="table-official">
+            <thead>
+                <tr>
+                    <th rowspan="2" width="50">ลำดับ</th> <th rowspan="2">ชื่อ - นามสกุล</th>
+                    <th colspan="2">เวลามา</th> <th colspan="2">เวลากลับ</th> <th rowspan="2" width="150">หมายเหตุ</th>
+                </tr>
+                <tr>
+                    <th width="80">ลายมือชื่อ</th> <th width="80">เวลา</th>
+                    <th width="80">ลายมือชื่อ</th> <th width="80">เวลา</th>
+                </tr>
+            </thead>
+            <tbody id="reportTableBody"></tbody>
+        </table>
+
+        <div class="footer-section">
+            <div class="row">
+                <div class="col-6">
+                    <p>เรียน ผู้อำนวยการ</p> <p class="ps-3">- เพื่อโปรดทราบ</p> <br><br>
+                    <div class="text-center w-75"><span>- ทราบ</span><br><br><br><br><div class="dot-line"></div></div> <br>
+                    <p>คณะกรรมการตรวจรับพัสดุ</p> <br><br>
+                    <div class="text-center w-75">
+                        <div class="dot-line"></div><br><span>ประธานกรรมการ</span><br><br><br>
+                        <div class="dot-line"></div><br><span>กรรมการ</span><br><br><br>
+                        <div class="dot-line"></div><br><span>กรรมการและเลขานุการ</span>
+                    </div>
+                </div>
+                <div class="col-6">
+                    <p class="fw-bold">ตรวจสอบแล้ว</p>
+                    <p><span id="roleLabel">เจ้าหน้าที่</span> จำนวน <span id="totalStaff">0</span> คน</p>
+                    <div class="ps-3">
+                        <div class="stat-row"><span>มาปฏิบัติงาน</span><span><span id="countPresent">0</span> คน</span></div>
+                        <div class="stat-row"><span>ไม่มาปฏิบัติงาน</span><span><span id="countAbsent">0</span> คน</span></div>
+                        <div class="stat-row"><span>มาสาย</span><span><span id="countLate">0</span> คน</span></div>
+                        <div class="stat-row fw-bold mt-2"><span>รวมมาปฏิบัติงาน</span><span><span id="countTotalPresent">0</span> คน</span></div>
+                    </div>
+                    <br><br><br>
+                    <div class="text-center">
+                        ลงชื่อ <div class="dot-line"></div> ผู้ตรวจสอบ<br><br>
+                        (<span contenteditable="true">นางสาวจุรีภรณ์ กุดสระ</span>)<br>
+                        <span contenteditable="true">นักวิชาการพัสดุปฏิบัติการ</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = ""; 
+        document.getElementById('selectDate').valueAsDate = new Date();
+
+        async function loadRoles() {
+            try { const res = await axios.get(`${API_URL}/api/roles`);
+            res.data.forEach(r => document.getElementById('selectRole').innerHTML += `<option value="${r}">${r}</option>`); } catch(e){}
+        }
+
+        async function loadReport() {
+            const date = document.getElementById('selectDate').value;
+            const role = document.getElementById('selectRole').value;
+            const roleTxt = document.getElementById('selectRole').options[document.getElementById('selectRole').selectedIndex].text;
+            const lateTime = document.getElementById('lateTime').value + ":00";
+            if(!date) return;
+
+            document.getElementById('roleLabel').innerText = role==='all'?"เจ้าหน้าที่ทั้งหมด":roleTxt;
+            document.getElementById('dateHeader').innerText = `วันที่ ${new Date(date).toLocaleDateString('th-TH', {day:'numeric', month:'long', year:'numeric'})}`;
+
+            try {
+                const res = await axios.get(`${API_URL}/api/report/daily?date=${date}&role=${role}`);
+                const tbody = document.getElementById('reportTableBody'); tbody.innerHTML = "";
+                let [total, present, absent, late] = [res.data.length, 0, 0, 0];
+                
+                if(total===0) tbody.innerHTML = `<tr><td colspan="7" class="text-center p-3">ไม่พบข้อมูล</td></tr>`;
+
+                res.data.forEach((item, i) => {
+                    let isPresent = item.time_in !== "-";
+                    if(isPresent) { present++; if(item.time_in > lateTime) late++; } else absent++;
+                    
+                    let remark = item.remark || "";
+                    if(isPresent && item.time_in > lateTime && !remark) remark = "สาย";
+
+                    tbody.innerHTML += `<tr>
+                        <td class="text-center">${i+1}</td> <td>${item.name}</td> <td></td>
+                        <td class="text-center">${item.time_in!=="-"?item.time_in.substring(0,5)+" น.":"-"}</td>
+                        <td></td> <td class="text-center">${item.time_out!=="-"?item.time_out.substring(0,5)+" น.":"-"}</td>
+                        <td class="text-center text-danger">${remark}</td>
+                    </tr>`;
+                });
+
+                document.getElementById('totalStaff').innerText = total;
+                document.getElementById('countPresent').innerText = present;
+                document.getElementById('countAbsent').innerText = absent;
+                document.getElementById('countLate').innerText = late;
+                document.getElementById('countTotalPresent').innerText = present;
+            } catch(e){ alert("Error"); }
+        }
+        loadRoles(); setTimeout(loadReport, 500);
+    </script>
+</body>
+</html>

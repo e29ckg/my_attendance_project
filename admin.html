@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>จัดการข้อมูลพนักงาน (Admin)</title>
+    <title>จัดการพนักงาน - Time Attendance</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
     <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;600&display=swap" rel="stylesheet">
@@ -12,280 +12,306 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     
     <style>
-        body { background-color: #f8f9fa; font-family: 'Sarabun', sans-serif; }
+        body { background-color: #f4f6f9; font-family: 'Sarabun', sans-serif; }
+        .navbar { box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
         .table-img { width: 50px; height: 50px; object-fit: cover; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        .card { border: none; box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.05); border-radius: 10px; }
-        .table th { background-color: #f1f3f5; font-weight: 600; }
-        .search-box { position: relative; }
+        .card { border: none; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
         .search-box i { position: absolute; left: 15px; top: 50%; transform: translateY(-50%); color: #aaa; }
         .search-box input { padding-left: 40px; }
+        .list-group-item { display: flex; justify-content: space-between; align-items: center; }
     </style>
 </head>
-<body class="p-3">
+<body>
 
-<div class="container">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <h3 class="fw-bold text-primary"><i class="bi bi-people-fill"></i> จัดการพนักงาน</h3>
-        <button class="btn btn-primary" onclick="openAddModal()">
-            <i class="bi bi-person-plus-fill"></i> เพิ่มพนักงานใหม่
-        </button>
-    </div>
+    <nav class="navbar navbar-expand-lg navbar-light bg-white sticky-top mb-4">
+        <div class="container">
+            <a class="navbar-brand fw-bold text-primary" href="/"><i class="bi bi-person-bounding-box"></i> HR Face Scan</a>
+            <div class="collapse navbar-collapse">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item"><a class="nav-link" href="/">🏠 หน้าหลัก</a></li>
+                    <li class="nav-item"><a class="nav-link active fw-bold" href="/admin">👥 จัดการพนักงาน</a></li>
+                    <li class="nav-item"><a class="nav-link" href="/report">📊 รายงานรายวัน</a></li>
+                    <li class="nav-item"><a class="nav-link" href="/print">🖨️ พิมพ์แบบฟอร์ม</a></li>
+                </ul>
+            </div>
+        </div>
+    </nav>
 
-    <div class="card p-3 mb-4">
-        <div class="row g-3">
-            <div class="col-md-6">
-                <div class="search-box">
+    <div class="container">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h4 class="fw-bold text-secondary"><i class="bi bi-people-fill"></i> ฐานข้อมูลพนักงาน</h4>
+            <div>
+                <button class="btn btn-secondary me-2 shadow-sm" onclick="openRoleModal()">
+                    <i class="bi bi-gear-fill"></i> จัดการตำแหน่ง
+                </button>
+                <button class="btn btn-primary shadow-sm" onclick="openAddModal()">
+                    <i class="bi bi-person-plus-fill"></i> เพิ่มพนักงานใหม่
+                </button>
+            </div>
+        </div>
+
+        <div class="card p-3 mb-4">
+            <div class="row g-3">
+                <div class="col-md-6 position-relative search-box">
                     <i class="bi bi-search"></i>
                     <input type="text" id="searchInput" class="form-control" placeholder="ค้นหาชื่อ หรือ รหัสพนักงาน..." onkeyup="filterData()">
                 </div>
-            </div>
-            <div class="col-md-4">
-                <select id="roleFilter" class="form-select" onchange="filterData()">
-                    <option value="all">ทุกตำแหน่ง</option>
+                <div class="col-md-4">
+                    <select id="roleFilter" class="form-select" onchange="filterData()">
+                        <option value="all">ทุกตำแหน่ง</option>
                     </select>
+                </div>
+                <div class="col-md-2 text-end align-self-center">
+                    <span class="text-muted small">พบ <b id="count">0</b> รายการ</span>
+                </div>
             </div>
-            <div class="col-md-2 text-end">
-                <span class="text-muted align-middle" style="line-height: 38px;">
-                    พบ <b id="count">0</b> รายการ
-                </span>
+        </div>
+
+        <div class="card p-4">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle">
+                    <thead class="table-light">
+                        <tr>
+                            <th width="80">รูปภาพ</th>
+                            <th>รหัส</th>
+                            <th>ชื่อ-นามสกุล</th>
+                            <th>ตำแหน่ง</th>
+                            <th width="150" class="text-center">จัดการ</th>
+                        </tr>
+                    </thead>
+                    <tbody id="employeeTable"></tbody>
+                </table>
             </div>
         </div>
     </div>
 
-    <div class="card p-4">
-        <div class="table-responsive">
-            <table class="table table-hover align-middle">
-                <thead>
-                    <tr>
-                        <th width="80">รูปภาพ</th>
-                        <th>รหัส</th>
-                        <th>ชื่อ-นามสกุล</th>
-                        <th>ตำแหน่ง</th>
-                        <th width="150" class="text-center">จัดการ</th>
-                    </tr>
-                </thead>
-                <tbody id="employeeTable">
-                    </tbody>
-            </table>
-        </div>
-    </div>
-</div>
-
-<div class="modal fade" id="employeeModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="modalTitle">ลงทะเบียนพนักงาน</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <form id="empForm">
-                    <input type="hidden" id="mode" value="add">
-                    
-                    <div class="mb-3">
-                        <label class="form-label">รหัสพนักงาน</label>
-                        <input type="text" class="form-control" id="empId" required>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">ชื่อ-นามสกุล</label>
-                        <input type="text" class="form-control" id="empName" required>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">ตำแหน่ง</label>
-                        <input type="text" class="form-control" id="empRole" required>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">รูปถ่าย (ถ้าไม่เปลี่ยนให้เว้นว่าง)</label>
-                        <input type="file" class="form-control" id="empPhoto" accept="image/*">
-                    </div>
-                </form>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ยกเลิก</button>
-                <button type="button" class="btn btn-primary" onclick="saveData()">บันทึกข้อมูล</button>
+    <div class="modal fade" id="employeeModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title fw-bold" id="modalTitle">ลงทะเบียนพนักงาน</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="empForm">
+                        <input type="hidden" id="mode" value="add">
+                        <div class="mb-3">
+                            <label class="form-label">รหัสพนักงาน</label>
+                            <input type="text" class="form-control" id="empId" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">ชื่อ-นามสกุล</label>
+                            <input type="text" class="form-control" id="empName" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">ตำแหน่ง</label>
+                            <select class="form-select" id="empRole" required>
+                                <option value="">-- เลือกตำแหน่ง --</option>
+                            </select>
+                            <div class="form-text text-end"><a href="#" onclick="myModal.hide(); openRoleModal();" style="text-decoration:none; font-size: 12px;">+ เพิ่มตำแหน่งใหม่</a></div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">รูปถ่าย</label>
+                            <input type="file" class="form-control" id="empPhoto" accept="image/*">
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-light" data-bs-dismiss="modal">ยกเลิก</button>
+                    <button type="button" class="btn btn-primary" onclick="saveData()">บันทึกข้อมูล</button>
+                </div>
             </div>
         </div>
     </div>
-</div>
 
-<script>
-    // ⚠️ ถ้า IP เปลี่ยน อย่าลืมแก้ตรงนี้ หรือใช้ window.location.origin
-    const API_BASE = ""; 
-    
-    let allEmployees = []; // ตัวแปรเก็บข้อมูลทั้งหมดเพื่อใช้ในการ Filter Client-side
+    <div class="modal fade" id="roleModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title fw-bold">จัดการตำแหน่ง/แผนก</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="input-group mb-3">
+                        <input type="text" id="newRoleInput" class="form-control" placeholder="ชื่อตำแหน่งใหม่...">
+                        <button class="btn btn-success" type="button" onclick="addNewRole()">เพิ่ม</button>
+                    </div>
+                    <ul class="list-group" id="roleList">
+                        </ul>
+                </div>
+            </div>
+        </div>
+    </div>
 
-    // 1. โหลดข้อมูลเมื่อเปิดหน้าเว็บ
-    async function loadEmployees() {
-        try {
-            const res = await axios.get(`${API_BASE}/api/employees`);
-            allEmployees = res.data;
-            
-            // สร้างตัวเลือก Filter ตำแหน่ง
-            updateRoleFilter(allEmployees);
-            // แสดงผลตาราง
-            renderTable(allEmployees);
-            
-        } catch (error) { console.error(error); }
-    }
+    <script>
+        const API_BASE = ""; 
+        let allEmployees = [];
+        let allRoles = [];
 
-    // 2. ฟังก์ชันแสดงผลตาราง (Render)
-    function renderTable(data) {
-        const tbody = document.getElementById('employeeTable');
-        const countSpan = document.getElementById('count');
-        tbody.innerHTML = "";
-        countSpan.innerText = data.length;
-
-        if (data.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="5" class="text-center py-4 text-muted">ไม่พบข้อมูล</td></tr>`;
-            return;
-        }
-
-        data.forEach(emp => {
-            const imgUrl = emp.image_path ? `${API_BASE}/${emp.image_path}?t=${new Date().getTime()}` : "https://via.placeholder.com/50";
-            
-            // สร้างปุ่ม Edit โดยส่งข้อมูลไปรอไว้ในฟังก์ชัน
-            // (ต้อง Escape เครื่องหมายคำพูดเพื่อไม่ให้ HTML พัง)
-            const safeName = emp.name.replace(/'/g, "\\'").replace(/"/g, "&quot;");
-            
-            const html = `
-            <tr>
-                <td><img src="${imgUrl}" class="table-img"></td>
-                <td class="fw-bold text-secondary">${emp.employee_id}</td>
-                <td>${emp.name}</td>
-                <td><span class="badge bg-light text-dark border">${emp.role}</span></td>
-                <td class="text-center">
-                    <button class="btn btn-sm btn-warning me-1" 
-                        onclick="openEditModal('${emp.employee_id}', '${safeName}', '${emp.role}')">
-                        <i class="bi bi-pencil-fill"></i>
-                    </button>
-                    <button class="btn btn-sm btn-danger" onclick="deleteEmp('${emp.employee_id}')">
-                        <i class="bi bi-trash-fill"></i>
-                    </button>
-                </td>
-            </tr>`;
-            tbody.innerHTML += html;
-        });
-    }
-
-    // 3. ฟังก์ชันสร้าง Dropdown Filter
-    function updateRoleFilter(data) {
-        const roles = [...new Set(data.map(item => item.role))]; // ดึงตำแหน่งที่ไม่ซ้ำกัน
-        const select = document.getElementById('roleFilter');
-        // เก็บค่าเดิมไว้ก่อนเคลียร์ (เผื่อ User เลือกค้างไว้)
-        const currentVal = select.value;
-        
-        select.innerHTML = '<option value="all">ทุกตำแหน่ง</option>';
-        roles.forEach(role => {
-            if(role) select.innerHTML += `<option value="${role}">${role}</option>`;
-        });
-        select.value = currentVal;
-    }
-
-    // 4. ระบบค้นหาและกรอง (Search & Filter)
-    function filterData() {
-        const searchText = document.getElementById('searchInput').value.toLowerCase();
-        const roleFilter = document.getElementById('roleFilter').value;
-
-        const filtered = allEmployees.filter(emp => {
-            // เช็คชื่อหรือรหัส
-            const matchName = emp.name.toLowerCase().includes(searchText) || 
-                              emp.employee_id.toLowerCase().includes(searchText);
-            // เช็คตำแหน่ง
-            const matchRole = roleFilter === "all" || emp.role === roleFilter;
-
-            return matchName && matchRole;
-        });
-
-        renderTable(filtered);
-    }
-
-    // --- MODAL FUNCTIONS ---
-    const myModal = new bootstrap.Modal(document.getElementById('employeeModal'));
-
-    function openAddModal() {
-        document.getElementById('modalTitle').innerText = "ลงทะเบียนพนักงานใหม่";
-        document.getElementById('mode').value = "add";
-        document.getElementById('empForm').reset();
-        document.getElementById('empId').disabled = false; // ปลดล็อคให้แก้ ID ได้
-        myModal.show();
-    }
-
-    function openEditModal(id, name, role) {
-        document.getElementById('modalTitle').innerText = "แก้ไขข้อมูลพนักงาน";
-        document.getElementById('mode').value = "edit";
-        
-        // เติมข้อมูลเดิมลงฟอร์ม
-        document.getElementById('empId').value = id;
-        document.getElementById('empName').value = name;
-        document.getElementById('empRole').value = role;
-        document.getElementById('empPhoto').value = ""; // เคลียร์ช่องเลือกไฟล์
-        
-        document.getElementById('empId').disabled = true; // ห้ามแก้รหัสพนักงานตอน Edit
-        myModal.show();
-    }
-
-    // 5. บันทึกข้อมูล (Save)
-    async function saveData() {
-        const mode = document.getElementById('mode').value;
-        const id = document.getElementById('empId').value;
-        const name = document.getElementById('empName').value;
-        const role = document.getElementById('empRole').value;
-        const fileInput = document.getElementById('empPhoto');
-
-        if (!id || !name || !role) {
-            Swal.fire('แจ้งเตือน', 'กรุณากรอกข้อมูลให้ครบ', 'warning');
-            return;
-        }
-
-        const formData = new FormData();
-        formData.append('emp_id', id);
-        formData.append('name', name);
-        formData.append('role', role);
-        if (fileInput.files[0]) {
-            formData.append('file', fileInput.files[0]);
-        }
-
-        // เลือก API endpoint ตามโหมด
-        const endpoint = mode === "add" ? "/api/register" : "/api/employees/update";
-
-        try {
-            Swal.fire({title: 'กำลังบันทึก...', allowOutsideClick: false, didOpen: () => Swal.showLoading()});
-            
-            await axios.post(`${API_BASE}${endpoint}`, formData);
-            
-            Swal.fire('สำเร็จ', 'บันทึกข้อมูลเรียบร้อยแล้ว', 'success');
-            myModal.hide();
-            loadEmployees(); // โหลดข้อมูลใหม่
-        } catch (error) {
-            Swal.fire('Error', 'เกิดข้อผิดพลาด: ' + error.message, 'error');
-        }
-    }
-
-    // 6. ลบข้อมูล
-    async function deleteEmp(id) {
-        const result = await Swal.fire({
-            title: 'ยืนยันการลบ?',
-            text: `ต้องการลบรหัส ${id} ใช่หรือไม่?`,
-            icon: 'warning',
-            showCancelButton: true,
-            confirmButtonColor: '#d33',
-            confirmButtonText: 'ลบเลย'
-        });
-
-        if (result.isConfirmed) {
+        // --- โหลดข้อมูล ---
+        async function loadEmployees() {
             try {
+                // โหลด Roles ก่อนเพื่อใส่ใน Dropdown
+                await loadRoles();
+                
+                const res = await axios.get(`${API_BASE}/api/employees`);
+                allEmployees = res.data;
+                renderTable(allEmployees);
+            } catch (error) { console.error(error); }
+        }
+
+        async function loadRoles() {
+            try {
+                const res = await axios.get(`${API_BASE}/api/roles`);
+                allRoles = res.data;
+                
+                // อัปเดต Filter Dropdown
+                const filterSel = document.getElementById('roleFilter');
+                const currentFilter = filterSel.value;
+                filterSel.innerHTML = '<option value="all">ทุกตำแหน่ง</option>';
+                allRoles.forEach(r => filterSel.innerHTML += `<option value="${r}">${r}</option>`);
+                filterSel.value = currentFilter;
+
+                // อัปเดต Modal Dropdown
+                const modalSel = document.getElementById('empRole');
+                modalSel.innerHTML = '<option value="">-- เลือกตำแหน่ง --</option>';
+                allRoles.forEach(r => modalSel.innerHTML += `<option value="${r}">${r}</option>`);
+
+            } catch (error) { console.error(error); }
+        }
+
+        // --- ตารางพนักงาน ---
+        function renderTable(data) {
+            const tbody = document.getElementById('employeeTable');
+            document.getElementById('count').innerText = data.length;
+            tbody.innerHTML = "";
+            if (data.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="5" class="text-center py-4 text-muted">ไม่พบข้อมูล</td></tr>`; return;
+            }
+            data.forEach(emp => {
+                const imgUrl = emp.image_path ? `${API_BASE}/${emp.image_path}?t=${Date.now()}` : "https://via.placeholder.com/50";
+                const safeName = emp.name.replace(/'/g, "\\'").replace(/"/g, "&quot;");
+                tbody.innerHTML += `
+                <tr>
+                    <td><img src="${imgUrl}" class="table-img"></td>
+                    <td class="fw-bold text-secondary">${emp.employee_id}</td>
+                    <td>${emp.name}</td>
+                    <td><span class="badge bg-light text-dark border">${emp.role}</span></td>
+                    <td class="text-center">
+                        <button class="btn btn-sm btn-outline-warning me-1" onclick="openEditModal('${emp.employee_id}', '${safeName}', '${emp.role}')"><i class="bi bi-pencil-fill"></i></button>
+                        <button class="btn btn-sm btn-outline-danger" onclick="deleteEmp('${emp.employee_id}')"><i class="bi bi-trash-fill"></i></button>
+                    </td>
+                </tr>`;
+            });
+        }
+
+        function filterData() {
+            const txt = document.getElementById('searchInput').value.toLowerCase();
+            const role = document.getElementById('roleFilter').value;
+            renderTable(allEmployees.filter(e => 
+                (e.name.toLowerCase().includes(txt) || e.employee_id.toLowerCase().includes(txt)) &&
+                (role === "all" || e.role === role)
+            ));
+        }
+
+        // --- จัดการพนักงาน (Add/Edit) ---
+        const myModal = new bootstrap.Modal(document.getElementById('employeeModal'));
+        function openAddModal() {
+            document.getElementById('modalTitle').innerText = "ลงทะเบียนพนักงานใหม่";
+            document.getElementById('mode').value = "add";
+            document.getElementById('empForm').reset();
+            document.getElementById('empId').disabled = false;
+            myModal.show();
+        }
+        function openEditModal(id, name, role) {
+            document.getElementById('modalTitle').innerText = "แก้ไขข้อมูล";
+            document.getElementById('mode').value = "edit";
+            document.getElementById('empId').value = id;
+            document.getElementById('empName').value = name;
+            
+            // เช็คว่าตำแหน่งเดิมยังอยู่ในลิสต์ไหม ถ้าไม่มีให้เติมชั่วคราว (กันบัค)
+            const sel = document.getElementById('empRole');
+            if (![...sel.options].some(o => o.value === role)) {
+                const opt = document.createElement('option'); opt.value = role; opt.innerText = role; sel.add(opt);
+            }
+            sel.value = role;
+            
+            document.getElementById('empPhoto').value = "";
+            document.getElementById('empId').disabled = true;
+            myModal.show();
+        }
+
+        async function saveData() {
+            const mode = document.getElementById('mode').value;
+            const id = document.getElementById('empId').value;
+            const name = document.getElementById('empName').value;
+            const role = document.getElementById('empRole').value;
+            const file = document.getElementById('empPhoto').files[0];
+            
+            if (!id || !name || !role) { Swal.fire('เตือน', 'กรอกข้อมูลให้ครบ', 'warning'); return; }
+            
+            const formData = new FormData();
+            formData.append('emp_id', id); formData.append('name', name); formData.append('role', role);
+            if (file) formData.append('file', file);
+            
+            const url = mode === "add" ? "/api/register" : "/api/employees/update";
+            try {
+                Swal.fire({title: 'บันทึก...', didOpen: () => Swal.showLoading()});
+                await axios.post(`${API_BASE}${url}`, formData);
+                Swal.fire('สำเร็จ', 'เรียบร้อยแล้ว', 'success');
+                myModal.hide(); loadEmployees();
+            } catch (e) { Swal.fire('Error', e.message, 'error'); }
+        }
+
+        async function deleteEmp(id) {
+            if((await Swal.fire({title:'ยืนยันลบ?', showCancelButton:true})).isConfirmed){
                 await axios.delete(`${API_BASE}/api/employees/delete/${id}`);
-                Swal.fire('ลบแล้ว', 'ข้อมูลถูกลบสำเร็จ', 'success');
                 loadEmployees();
-            } catch (e) {
-                Swal.fire('Error', 'ลบไม่สำเร็จ', 'error');
             }
         }
-    }
 
-    // เริ่มทำงาน
-    loadEmployees();
-</script>
+        // --- จัดการ Role (New Feature) ---
+        const roleModal = new bootstrap.Modal(document.getElementById('roleModal'));
+        function openRoleModal() {
+            renderRoleList();
+            roleModal.show();
+        }
 
+        function renderRoleList() {
+            const list = document.getElementById('roleList');
+            list.innerHTML = "";
+            allRoles.forEach(r => {
+                list.innerHTML += `
+                <li class="list-group-item">
+                    ${r}
+                    <button class="btn btn-sm btn-outline-danger" onclick="deleteRole('${r}')"><i class="bi bi-trash"></i></button>
+                </li>`;
+            });
+        }
+
+        async function addNewRole() {
+            const newRole = document.getElementById('newRoleInput').value.trim();
+            if(!newRole) return;
+            try {
+                const fd = new FormData(); fd.append('role_name', newRole);
+                await axios.post(`${API_BASE}/api/roles`, fd);
+                document.getElementById('newRoleInput').value = "";
+                await loadRoles(); // โหลดใหม่
+                renderRoleList(); // อัปเดตลิสต์ใน Modal
+            } catch(e) { alert("เพิ่มไม่สำเร็จ"); }
+        }
+
+        async function deleteRole(roleName) {
+            if(!confirm(`ต้องการลบตำแหน่ง "${roleName}" ?`)) return;
+            try {
+                await axios.delete(`${API_BASE}/api/roles/${roleName}`);
+                await loadRoles();
+                renderRoleList();
+            } catch(e) { alert("ลบไม่สำเร็จ"); }
+        }
+
+        // Start
+        loadEmployees();
+    </script>
 </body>
 </html>

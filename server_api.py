@@ -1,29 +1,41 @@
 import uvicorn
 import shutil
-from fastapi import FastAPI, UploadFile, File, Form # <--- เพิ่ม Form
-from fastapi.staticfiles import StaticFiles # <--- เพิ่ม StaticFiles
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+import os
+import sqlite3
 import cv2
 import numpy as np
-import os
-import json
-import sqlite3
-from datetime import datetime
-from deepface import DeepFace
-from typing import Optional
-import requests
 import threading
+import requests
+import json
+from typing import Optional
+from datetime import datetime
+from dotenv import load_dotenv # โหลดค่าจากไฟล์ .env
 
-# --- CONFIG ---
-DB_FILE = "attendance.db"
-# ค่าความเหมือน (ยิ่งน้อยยิ่งเข้มงวด)
-THRESHOLD = 0.3
+# รวม import ของ FastAPI ไว้ด้วยกัน
+from fastapi import FastAPI, UploadFile, File, Form
+from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from deepface import DeepFace
 
-# [เพิ่ม] ตั้งค่า Telegram
-ENABLE_TELEGRAM = True
-TELEGRAM_TOKEN = "7785178042:AAHHa-qbxlyJy7Ff0F3QS_F0NEQr5Qbk3Wc"
-TELEGRAM_CHAT_ID = "7873635913"
+# --- [เพิ่ม] LOAD .ENV ---
+load_dotenv() # โหลดค่าจากไฟล์ .env เข้าสู่ระบบ
+
+# --- CONFIG (ดึงจาก .env) ---
+DB_FILE = os.getenv("DB_FILE", "attendance.db")
+THRESHOLD = float(os.getenv("THRESHOLD", 0.3)) # แปลงเป็น float
+
+# การแปลงค่า True/False จาก String
+ENABLE_TELEGRAM = os.getenv("ENABLE_TELEGRAM", "False").lower() == "true"
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
+
+os.makedirs("images", exist_ok=True)
+os.makedirs("attendance_images", exist_ok=True) # สร้างโฟลเดอร์รอไว้เลย
+
+# Port สำหรับรัน Server
+SERVER_PORT = int(os.getenv("PORT", 9876))
+SERVER_HOST = os.getenv("HOST", "0.0.0.0")
 
 app = FastAPI()
 
@@ -37,6 +49,8 @@ app.add_middleware(
 
 os.makedirs("images", exist_ok=True)
 app.mount("/images", StaticFiles(directory="images"), name="images")
+app.mount("/attendance_images", StaticFiles(directory="attendance_images"), name="attendance_images")
+
 
 # Global Variables
 known_embeddings = []
@@ -58,14 +72,10 @@ def init_system():
         cur = conn.cursor()
         cur.execute("""CREATE TABLE IF NOT EXISTS employees (employee_id TEXT PRIMARY KEY, name TEXT, role TEXT, image_path TEXT, embedding TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
         cur.execute("""CREATE TABLE IF NOT EXISTS attendance_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, employee_id TEXT, employee_name TEXT, check_time DATETIME, evidence_image TEXT, log_type TEXT DEFAULT 'SCAN', status TEXT DEFAULT '-')""")
-        cur.execute("""CREATE TABLE IF NOT EXISTS daily_remarks (
-            date_str TEXT, 
-            employee_id TEXT, 
-            remark TEXT, 
-            PRIMARY KEY (date_str, employee_id)
-        )""")
+        cur.execute("""CREATE TABLE IF NOT EXISTS daily_remarks (date_str TEXT, employee_id TEXT, remark TEXT, PRIMARY KEY (date_str, employee_id))""")
+        cur.execute("""CREATE TABLE IF NOT EXISTS roles (role_name TEXT PRIMARY KEY)""")
+        cur.execute("INSERT OR IGNORE INTO roles (role_name) SELECT DISTINCT role FROM employees WHERE role IS NOT NULL AND role != ''")
         conn.commit(); conn.close()
-
     
     # 2. โหลดหน้าเข้า RAM
     load_faces()
@@ -124,6 +134,7 @@ async def view_admin():
 async def view_report():
     """เปิดหน้ารายงาน"""
     return FileResponse("report_daily.html")
+
 
 # --- FACE SCAN API ---
 @app.post("/scan")
@@ -303,16 +314,43 @@ async def update_employee(
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
+# --- ROLE MANAGEMENT API ---
+
 @app.get("/api/roles")
 async def get_roles():
-    """ดึงตำแหน่งทั้งหมด (สำหรับ Dropdown)"""
+    """ดึงรายชื่อตำแหน่งทั้งหมดจากตาราง roles"""
     conn = get_db_conn()
-    if not conn: return []
     cur = conn.cursor()
-    cur.execute("SELECT DISTINCT role FROM employees WHERE role IS NOT NULL AND role != ''")
+    cur.execute("SELECT role_name FROM roles ORDER BY role_name")
     rows = cur.fetchall()
     conn.close()
-    return [r['role'] for r in rows]
+    return [r['role_name'] for r in rows]
+
+@app.post("/api/roles")
+async def add_role(role_name: str = Form(...)):
+    """เพิ่มตำแหน่งใหม่"""
+    try:
+        conn = get_db_conn()
+        cur = conn.cursor()
+        cur.execute("INSERT OR IGNORE INTO roles (role_name) VALUES (?)", (role_name.strip(),))
+        conn.commit()
+        conn.close()
+        return {"status": "success"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@app.delete("/api/roles/{role_name}")
+async def delete_role(role_name: str):
+    """ลบตำแหน่ง"""
+    try:
+        conn = get_db_conn()
+        cur = conn.cursor()
+        cur.execute("DELETE FROM roles WHERE role_name = ?", (role_name,))
+        conn.commit()
+        conn.close()
+        return {"status": "success"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 @app.post("/api/register")
 async def register(
@@ -488,11 +526,16 @@ async def update_remark(
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
+@app.get("/print")
+async def view_print():
+    return FileResponse("report_print.html")
+
 @app.get("/health")
 async def health_check():
     """API สำหรับเช็คว่า Server ยังรอดอยู่ไหม"""
     return {"status": "online"}
 
 if __name__ == "__main__":
-    # รัน Server ที่ Port 9876
-    uvicorn.run(app, host="0.0.0.0", port=9876)
+    print(f">>> 🚀 Starting Server on Port {SERVER_PORT}...")
+    # ใช้ตัวแปรจาก .env
+    uvicorn.run(app, host=SERVER_HOST, port=SERVER_PORT)
