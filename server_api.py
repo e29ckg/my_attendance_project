@@ -8,8 +8,9 @@ import threading
 import requests
 import json
 import psutil
+import time
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 from dotenv import load_dotenv # โหลดค่าจากไฟล์ .env
 
 # รวม import ของ FastAPI ไว้ด้วยกัน
@@ -33,6 +34,8 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 
 os.makedirs("images", exist_ok=True)
 os.makedirs("attendance_images", exist_ok=True) # สร้างโฟลเดอร์รอไว้เลย
+
+KEEP_IMAGE_DAYS = int(os.getenv("KEEP_IMAGE_DAYS", 15)) # จำนวนวันเก็บรูปภาพ
 
 # Port สำหรับรัน Server
 SERVER_PORT = int(os.getenv("PORT", 9876))
@@ -421,72 +424,68 @@ async def delete_employee(emp_id: str):
     
 # --- REPORT API ---
 
-# ค้นหาฟังก์ชัน get_daily_report แล้วแก้ตามนี้ครับ
-
 @app.get("/api/report/daily")
 async def get_daily_report(date: str, role: str = "all"):
-    """
-    ดึงรายงานสรุปรายวัน: 
-    - เวลาเข้า = สแกนครั้งแรก
-    - เวลาออก = สแกนครั้งสุดท้าย
-    - [NEW] เรียงลำดับตามเวลาเข้า (มาก่อนอยู่บน)
-    """
+    # ... (code เชื่อมต่อ db เดิม) ...
     conn = get_db_conn()
     if not conn: return []
     cur = conn.cursor()
-    
-    # ... (ส่วนที่ 1-3 ดึง employees, logs, remarks เหมือนเดิมเป๊ะๆ) ...
-    # 1. ดึงพนักงาน
+
+    # ... (code ดึง employees เดิม) ...
     if role == "all":
         cur.execute("SELECT employee_id, name, role FROM employees")
     else:
         cur.execute("SELECT employee_id, name, role FROM employees WHERE role = ?", (role,))
     employees = cur.fetchall()
-    
-    # 2. ดึง Log
+
+    # 1. ดึง Log พร้อมรูปภาพ (evidence_image)
     cur.execute("""
-        SELECT employee_id, check_time 
+        SELECT employee_id, check_time, evidence_image 
         FROM attendance_logs 
         WHERE date(check_time) = ? 
         ORDER BY check_time ASC
     """, (date,))
     all_logs = cur.fetchall()
-    
+
     logs_by_emp = {}
     for log in all_logs:
         eid = log['employee_id']
         if eid not in logs_by_emp: logs_by_emp[eid] = []
-        logs_by_emp[eid].append(log['check_time'])
+        # เก็บเป็น Tuple (เวลา, รูปภาพ)
+        logs_by_emp[eid].append({
+            "time": log['check_time'],
+            "img": log['evidence_image']
+        })
 
-    # 3. ดึงหมายเหตุ
+    # ... (ดึง remarks เหมือนเดิม) ...
     cur.execute("SELECT employee_id, remark FROM daily_remarks WHERE date_str = ?", (date,))
     remarks_db = cur.fetchall()
     remarks_map = {r['employee_id']: r['remark'] for r in remarks_db}
 
     report_data = []
-    
-    # 4. วนลูปคำนวณเวลา (เหมือนเดิม)
+
     for emp in employees:
         e_id = emp['employee_id']
         e_name = emp['name']
+        logs = logs_by_emp.get(e_id, [])
         
-        times = logs_by_emp.get(e_id, [])
+        time_in, img_in = "-", ""
+        time_out, img_out = "-", ""
         
-        time_in = "-"
-        time_out = "-"
-        
-        if times:
+        if logs:
             try:
-                # เวลาเข้า
-                t_str_in = times[0].split(".")[0]
-                dt_in = datetime.strptime(t_str_in, "%Y-%m-%d %H:%M:%S")
+                # เวลาเข้า (ตัวแรก)
+                t_in = logs[0]['time'].split(".")[0]
+                dt_in = datetime.strptime(t_in, "%Y-%m-%d %H:%M:%S")
                 time_in = dt_in.strftime("%H:%M:%S")
-                
-                # เวลาออก (ต้องมีมากกว่า 1 ครั้ง)
-                if len(times) > 1:
-                    t_str_out = times[-1].split(".")[0]
-                    dt_out = datetime.strptime(t_str_out, "%Y-%m-%d %H:%M:%S")
+                img_in = logs[0]['img'] # รูปเข้า
+
+                # เวลาออก (ตัวสุดท้าย - ต้องสแกน > 1 ครั้ง)
+                if len(logs) > 1:
+                    t_out = logs[-1]['time'].split(".")[0]
+                    dt_out = datetime.strptime(t_out, "%Y-%m-%d %H:%M:%S")
                     time_out = dt_out.strftime("%H:%M:%S")
+                    img_out = logs[-1]['img'] # รูปออก
             except: pass
 
         report_data.append({
@@ -494,33 +493,36 @@ async def get_daily_report(date: str, role: str = "all"):
             "name": e_name,
             "role": emp['role'],
             "time_in": time_in,
+            "img_in": img_in,   # ส่งรูปเข้า
             "time_out": time_out,
+            "img_out": img_out, # ส่งรูปออก
             "remark": remarks_map.get(e_id, "")
         })
         
     conn.close()
-
-    # --- [เพิ่มส่วนนี้] เรียงลำดับข้อมูลก่อนส่งกลับ ---
-    # Logic: ถ้ามีเวลาให้ใช้เวลานั้น, ถ้าเป็น "-" ให้เป็นค่ามากสุด (เช่น "99:99:99") จะได้ไปอยู่ล่างสุด
     report_data.sort(key=lambda x: x['time_in'] if x['time_in'] != "-" else "99:99:99")
-
     return report_data
 
+# ค้นหาฟังก์ชันนี้ใน server_api.py แล้วแก้ตามนี้ครับ
 @app.post("/api/report/remark")
 async def update_remark(
     date: str = Form(...),
     employee_id: str = Form(...),
-    remark: str = Form(...)
+    # ❌ ของเดิม: remark: str = Form(...)  <-- แบบนี้คือห้ามว่าง
+    # ✅ ของใหม่: ใส่ค่า Default เป็น "" เพื่อให้รับค่าว่างได้
+    remark: str = Form("") 
 ):
     """อัปเดตหมายเหตุรายวัน"""
     try:
         conn = get_db_conn()
         cur = conn.cursor()
+        
         # ใช้ Insert or Replace เพื่อบันทึกทับได้เลย
         cur.execute("""
             INSERT OR REPLACE INTO daily_remarks (date_str, employee_id, remark)
             VALUES (?, ?, ?)
         """, (date, employee_id, remark))
+        
         conn.commit()
         conn.close()
         return {"status": "success"}
@@ -614,6 +616,39 @@ async def test_telegram():
             return {"status": "error", "message": f"Telegram API Error: {resp.text}"}
     except Exception as e:
         return {"status": "error", "message": str(e)}
+    
+def cleanup_old_data():
+    """ทำงานเบื้องหลัง: ลบรูปและ Log ที่เก่ากว่ากำหนด"""
+    while True:
+        if KEEP_IMAGE_DAYS > 0:
+            print(f">>> 🧹 Running Cleanup Task (Keep {KEEP_IMAGE_DAYS} days)...")
+            try:
+                cutoff_time = datetime.now().timestamp() - (KEEP_IMAGE_DAYS * 86400)
+                
+                # 1. ลบไฟล์รูปภาพ
+                folder = "attendance_images"
+                if os.path.exists(folder):
+                    for f in os.listdir(folder):
+                        f_path = os.path.join(folder, f)
+                        # เช็คว่าไฟล์เก่ากว่า cutoff หรือไม่
+                        if os.path.isfile(f_path) and os.path.getmtime(f_path) < cutoff_time:
+                            os.remove(f_path)
+                            print(f"Deleted old image: {f}")
+                
+                # 2. (Optional) ลบข้อมูลใน Database ด้วย
+                conn = get_db_conn()
+                cur = conn.cursor()
+                # คำนวณวันที่ย้อนหลัง
+                date_cutoff = (datetime.now() - timedelta(days=KEEP_IMAGE_DAYS)).strftime("%Y-%m-%d")
+                cur.execute("DELETE FROM attendance_logs WHERE date(check_time) < ?", (date_cutoff,))
+                conn.commit()
+                conn.close()
+                
+            except Exception as e:
+                print(f"Cleanup Error: {e}")
+        
+        # รอ 24 ชั่วโมงค่อยทำงานใหม่ (86400 วินาที)
+        time.sleep(86400)
 
 # เพิ่ม Route สำหรับเปิดหน้า Monitor
 @app.get("/monitor")
@@ -625,7 +660,9 @@ async def health_check():
     """API สำหรับเช็คว่า Server ยังรอดอยู่ไหม"""
     return {"status": "online"}
 
+
+
 if __name__ == "__main__":
     print(f">>> 🚀 Starting Server on Port {SERVER_PORT}...")
-    # ใช้ตัวแปรจาก .env
+    threading.Thread(target=cleanup_old_data, daemon=True).start()
     uvicorn.run(app, host=SERVER_HOST, port=SERVER_PORT)

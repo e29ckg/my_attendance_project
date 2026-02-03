@@ -2,17 +2,27 @@
 <html lang="th">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>รายงานรายวัน - Time Attendance</title>
+    
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
     <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;600&display=swap" rel="stylesheet">
+    
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    
     <style>
         body { font-family: 'Sarabun', sans-serif; background-color: #f4f6f9; }
         .navbar { box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
         .card { border: none; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
-        .remark-input { border: none; border-bottom: 1px dashed #ccc; width: 100%; color: #555; background: transparent; }
+        .remark-input { 
+            border: none; border-bottom: 1px dashed #ccc; width: 100%; 
+            color: #555; background: transparent; padding: 2px 5px;
+        }
         .remark-input:focus { outline: none; border-bottom: 1px solid #0d6efd; background: #f0f8ff; }
+        .table-hover tbody tr:hover { background-color: #f8f9fa; }
     </style>
 </head>
 <body>
@@ -25,14 +35,14 @@
                     <li class="nav-item"><a class="nav-link" href="/">🏠 หน้าหลัก</a></li>
                     <li class="nav-item"><a class="nav-link" href="/admin">👥 จัดการพนักงาน</a></li>
                     <li class="nav-item"><a class="nav-link active fw-bold" href="/report">📊 รายงานรายวัน</a></li>
-                    <li class="nav-item"><a class="nav-link" href="/print">🖨️ พิมพ์แบบฟอร์ม</a></li>
+                    <li class="nav-item"><a class="nav-link" href="/print">🖨️ พิมพ์แบบฟอร์ม</a></li>                    
                     <li class="nav-item"><a class="nav-link active fw-bold text-danger" href="/monitor">🔧 Monitor</a></li>
                 </ul>
             </div>
         </div>
     </nav>
 
-    <div class="container">
+    <div class="container pb-5">
         <h4 class="fw-bold text-secondary mb-4"><i class="bi bi-calendar-check"></i> ตรวจสอบเวลาเข้า-ออก</h4>
 
         <div class="card p-4 mb-4">
@@ -45,93 +55,172 @@
                     <label class="form-label fw-bold">👤 ประเภทพนักงาน:</label>
                     <select id="selectRole" class="form-select">
                         <option value="all">ทั้งหมด</option>
-                    </select>
+                        </select>
                 </div>
                 <div class="col-md-4">
-                    <button onclick="loadReport()" class="btn btn-primary w-100"><i class="bi bi-search"></i> ดูรายงาน</button>
+                    <button onclick="loadReport()" class="btn btn-primary w-100 shadow-sm">
+                        <i class="bi bi-search"></i> ดูรายงาน
+                    </button>
                 </div>
             </div>
         </div>
 
         <div class="card p-4" id="reportSection" style="display:none;">
-            <div class="d-flex justify-content-between mb-3 border-bottom pb-2">
-                <h5 class="fw-bold text-primary" id="tableHeader">ข้อมูลประจำวันที่ ...</h5>
-                <small class="text-muted">แก้ไขหมายเหตุโดยการพิมพ์แล้วคลิกที่ว่าง</small>
+            <div class="d-flex justify-content-between align-items-center mb-3 border-bottom pb-3">
+                <h5 class="fw-bold text-primary m-0" id="tableHeader">ข้อมูลประจำวันที่ ...</h5>
+                <small class="text-muted"><i class="bi bi-info-circle"></i> คลิกที่ช่องหมายเหตุเพื่อแก้ไข</small>
             </div>
+            
             <div class="table-responsive">
                 <table class="table table-hover align-middle">
                     <thead class="table-light">
                         <tr>
-                            <th class="text-center">#</th>
+                            <th class="text-center" width="50">#</th>
                             <th>ชื่อ-นามสกุล</th>
-                            <th class="text-center">แผนก</th>
-                            <th class="text-center">เวลาเข้า</th>
-                            <th class="text-center">เวลาออก</th>
+                            <th class="text-center" width="150">แผนก</th>
+                            <th class="text-center" width="150">เวลาเข้า</th>
+                            <th class="text-center" width="150">เวลาออก</th>
                             <th>หมายเหตุ</th>
                         </tr>
                     </thead>
-                    <tbody id="reportTableBody"></tbody>
+                    <tbody id="reportTableBody">
+                        </tbody>
                 </table>
             </div>
         </div>
     </div>
 
     <script>
-        const API_URL = "";
+        const API_URL = ""; // Auto-detect IP
         document.getElementById('selectDate').valueAsDate = new Date();
 
+        // 1. โหลด Roles ใส่ Dropdown
         async function loadRoles() {
             try {
                 const res = await axios.get(`${API_URL}/api/roles`);
                 const sel = document.getElementById('selectRole');
-                res.data.forEach(r => sel.innerHTML += `<option value="${r}">${r}</option>`);
-            } catch(e){}
+                res.data.forEach(r => {
+                    sel.innerHTML += `<option value="${r}">${r}</option>`;
+                });
+            } catch(e) { console.error(e); }
         }
 
+        // 2. ฟังก์ชันสร้างปุ่มดูรูป (Helper)
+        const btnImg = (img) => {
+            if(!img) return "";
+            // ส่ง path รูปไปแสดงใน SweetAlert
+            // ใส่ timestamp เพื่อกัน cache รูปเก่า
+            return `<button class="btn btn-sm btn-link text-primary p-0 ms-2" 
+                    title="ดูรูปหลักฐาน"
+                    onclick="showImage('${img}')">
+                    <i class="bi bi-camera-fill"></i>
+                    </button>`;
+        };
+
+        function showImage(imgPath) {
+            Swal.fire({
+                imageUrl: `${API_URL}/${imgPath}`,
+                imageHeight: 400,
+                imageAlt: 'Evidence',
+                showConfirmButton: false,
+                showCloseButton: true,
+                background: '#fff',
+                backdrop: `rgba(0,0,0,0.8)`
+            });
+        }
+
+        // 3. โหลดรายงาน
         async function loadReport() {
             const date = document.getElementById('selectDate').value;
             const role = document.getElementById('selectRole').value;
             const roleTxt = document.getElementById('selectRole').options[document.getElementById('selectRole').selectedIndex].text;
             
+            if(!date) return;
+
+            // UI Loading
             document.getElementById('reportSection').style.display = 'block';
-            document.getElementById('reportTableBody').innerHTML = '<tr><td colspan="6" class="text-center">⏳ Loading...</td></tr>';
+            const tbody = document.getElementById('reportTableBody');
+            tbody.innerHTML = '<tr><td colspan="6" class="text-center py-5"><div class="spinner-border text-primary"></div><div class="mt-2 text-muted">กำลังโหลดข้อมูล...</div></td></tr>';
             
+            // Set Header
             const thaiDate = new Date(date).toLocaleDateString('th-TH', { year:'numeric', month:'long', day:'numeric'});
-            document.getElementById('tableHeader').innerHTML = `รายงาน: ${roleTxt} | ${thaiDate}`;
+            document.getElementById('tableHeader').innerHTML = `รายงาน: <span class="text-dark">${roleTxt}</span> | <span class="text-dark">${thaiDate}</span>`;
 
             try {
                 const res = await axios.get(`${API_URL}/api/report/daily?date=${date}&role=${role}`);
-                const tbody = document.getElementById('reportTableBody');
+                const data = res.data;
+                
                 tbody.innerHTML = "";
-                if(res.data.length===0){ tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">ไม่พบข้อมูล</td></tr>'; return; }
+                if(data.length === 0){ 
+                    tbody.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-muted">ไม่พบข้อมูลพนักงานในกลุ่มนี้</td></tr>'; 
+                    return; 
+                }
 
-                res.data.forEach((item, i) => {
+                data.forEach((item, i) => {
+                    // จัดการสีและสถานะเวลา
                     const inClass = item.time_in === "-" ? "text-muted" : "text-success fw-bold";
                     const outClass = item.time_out === "-" ? "text-muted" : "text-danger fw-bold";
+                    
+                    // Escape ข้อความเพื่อความปลอดภัย
                     const safeRemark = item.remark ? item.remark.replace(/"/g, "&quot;") : "";
                     const safeId = item.employee_id.replace(/'/g, "\\'");
 
-                    tbody.innerHTML += `
+                    const row = `
                     <tr>
-                        <td class="text-center">${i+1}</td>
-                        <td>${item.name} <br><small class="text-muted">${item.employee_id}</small></td>
-                        <td class="text-center"><span class="badge bg-light text-dark border">${item.role}</span></td>
-                        <td class="text-center ${inClass}">${item.time_in}</td>
-                        <td class="text-center ${outClass}">${item.time_out}</td>
+                        <td class="text-center text-muted small">${i+1}</td>
                         <td>
-                            <input type="text" class="remark-input" value="${safeRemark}" placeholder="..." onblur="saveRemark('${date}', '${safeId}', this.value)">
+                            <div class="fw-bold">${item.name}</div>
+                            <small class="text-muted" style="font-size: 0.85em;">ID: ${item.employee_id}</small>
+                        </td>
+                        <td class="text-center"><span class="badge bg-light text-dark border">${item.role}</span></td>
+                        
+                        <td class="text-center ${inClass}">
+                            ${item.time_in} ${btnImg(item.img_in)}
+                        </td>
+                        
+                        <td class="text-center ${outClass}">
+                            ${item.time_out} ${btnImg(item.img_out)}
+                        </td>
+                        
+                        <td>
+                            <input type="text" 
+                                   class="remark-input" 
+                                   value="${safeRemark}" 
+                                   placeholder="บันทึกเพิ่มเติม..." 
+                                   onblur="saveRemark('${date}', '${safeId}', this.value)">
                         </td>
                     </tr>`;
+                    tbody.innerHTML += row;
                 });
-            } catch(e){ alert("Error loading data"); }
+
+            } catch(e) { 
+                console.error(e);
+                tbody.innerHTML = '<tr><td colspan="6" class="text-center text-danger py-4">เกิดข้อผิดพลาดในการเชื่อมต่อ Server</td></tr>';
+            }
         }
 
+        // 4. บันทึกหมายเหตุ
         async function saveRemark(date, id, text) {
-            const fd = new FormData(); fd.append('date', date); fd.append('employee_id', id); fd.append('remark', text);
-            await axios.post(`${API_URL}/api/report/remark`, fd);
+            try {
+                const fd = new FormData(); 
+                fd.append('date', date); 
+                fd.append('employee_id', id); 
+                fd.append('remark', text); // ส่งค่าว่างได้แล้ว (Server แก้แล้ว)
+                
+                await axios.post(`${API_URL}/api/report/remark`, fd);
+                // ไม่ต้อง Alert เพื่อ UX ที่ลื่นไหล
+                console.log(`Saved remark for ${id}: ${text}`);
+            } catch(e) {
+                Swal.fire({
+                    toast: true, position: 'top-end', icon: 'error', 
+                    title: 'บันทึกหมายเหตุไม่สำเร็จ', showConfirmButton: false, timer: 3000
+                });
+            }
         }
 
-        loadRoles(); loadReport();
+        // เริ่มทำงาน
+        loadRoles();
+        setTimeout(loadReport, 500); // รอโหลด Role แป๊บนึงแล้วค่อยโหลดรายงาน
     </script>
 </body>
 </html>
