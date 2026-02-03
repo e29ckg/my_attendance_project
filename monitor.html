@@ -2,7 +2,7 @@
 <html lang="th">
 <head>
     <meta charset="UTF-8">
-    <title>System Monitor - ตรวจสอบระบบ</title>
+    <title>System Monitor & Health Check</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
     <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;600&display=swap" rel="stylesheet">
@@ -13,13 +13,9 @@
         body { background-color: #f4f6f9; font-family: 'Sarabun', sans-serif; }
         .navbar { box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
         .card-stat { border: none; border-radius: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); transition: transform 0.2s; }
-        .card-stat:hover { transform: translateY(-5px); }
-        .icon-box { font-size: 2.5rem; margin-bottom: 10px; }
-        .status-badge { font-size: 0.9rem; padding: 5px 10px; border-radius: 20px; }
-        .bg-gradient-success { background: linear-gradient(45deg, #28a745, #20c997); color: white; }
-        .bg-gradient-info { background: linear-gradient(45deg, #17a2b8, #0dcaf0); color: white; }
-        .bg-gradient-warning { background: linear-gradient(45deg, #ffc107, #fd7e14); color: white; }
-        .bg-gradient-danger { background: linear-gradient(45deg, #dc3545, #f86c6b); color: white; }
+        .card-stat:hover { transform: translateY(-3px); }
+        .icon-box { font-size: 2.2rem; }
+        .progress { height: 12px; border-radius: 6px; background-color: #e9ecef; }
     </style>
 </head>
 <body>
@@ -31,7 +27,7 @@
                 <ul class="navbar-nav ms-auto">
                     <li class="nav-item"><a class="nav-link" href="/">🏠 หน้าหลัก</a></li>
                     <li class="nav-item"><a class="nav-link" href="/admin">👥 จัดการพนักงาน</a></li>
-                    <li class="nav-item"><a class="nav-link" href="/report">📊 รายงาน</a></li>                    
+                    <li class="nav-item"><a class="nav-link" href="/report">📊 รายงาน</a></li>
                     <li class="nav-item"><a class="nav-link" href="/print">🖨️ พิมพ์แบบฟอร์ม</a></li>
                     <li class="nav-item"><a class="nav-link active fw-bold text-danger" href="/monitor">🔧 Monitor</a></li>
                 </ul>
@@ -39,96 +35,110 @@
         </div>
     </nav>
 
-    <div class="container">
+    <div class="container pb-5">
         <div class="d-flex justify-content-between align-items-center mb-4">
-            <h4 class="fw-bold text-secondary"><i class="bi bi-activity"></i> ตรวจสอบสถานะระบบ</h4>
-            <button class="btn btn-outline-primary btn-sm" onclick="loadStatus()">
-                <i class="bi bi-arrow-clockwise"></i> รีเฟรชข้อมูล
-            </button>
+            <h4 class="fw-bold text-secondary"><i class="bi bi-activity"></i> Server Health & Performance</h4>
+            <div class="text-end">
+                <span class="badge bg-light text-dark border me-2" id="serverTime">--:--:--</span>
+                <button class="btn btn-outline-primary btn-sm" onclick="loadStatus()">
+                    <i class="bi bi-arrow-clockwise"></i> Refresh
+                </button>
+            </div>
+        </div>
+
+        <div class="row g-4 mb-4">
+            <div class="col-md-4">
+                <div class="card card-stat p-3 h-100">
+                    <div class="d-flex justify-content-between mb-2">
+                        <span class="fw-bold text-secondary">CPU Usage</span>
+                        <i class="bi bi-cpu text-primary icon-box"></i>
+                    </div>
+                    <h3 class="fw-bold" id="cpuVal">0%</h3>
+                    <div class="progress mb-2">
+                        <div id="cpuBar" class="progress-bar bg-primary" style="width: 0%"></div>
+                    </div>
+                    <small class="text-muted" id="cpuCore">Core: -</small>
+                </div>
+            </div>
+
+            <div class="col-md-4">
+                <div class="card card-stat p-3 h-100">
+                    <div class="d-flex justify-content-between mb-2">
+                        <span class="fw-bold text-secondary">RAM Usage</span>
+                        <i class="bi bi-memory text-info icon-box"></i>
+                    </div>
+                    <h3 class="fw-bold" id="ramVal">0%</h3>
+                    <div class="progress mb-2">
+                        <div id="ramBar" class="progress-bar bg-info" style="width: 0%"></div>
+                    </div>
+                    <small class="text-muted" id="ramDetail">Used: - / Total: -</small>
+                </div>
+            </div>
+
+            <div class="col-md-4">
+                <div class="card card-stat p-3 h-100">
+                    <div class="d-flex justify-content-between mb-2">
+                        <span class="fw-bold text-secondary">Disk Storage</span>
+                        <i class="bi bi-hdd text-warning icon-box"></i>
+                    </div>
+                    <h3 class="fw-bold" id="diskVal">0%</h3>
+                    <div class="progress mb-2">
+                        <div id="diskBar" class="progress-bar bg-warning" style="width: 0%"></div>
+                    </div>
+                    <small class="text-muted" id="diskDetail">Used: - / Total: -</small>
+                </div>
+            </div>
         </div>
 
         <div class="row g-4">
-            
-            <div class="col-md-3">
-                <div class="card card-stat h-100 p-3">
-                    <div class="d-flex justify-content-between">
-                        <div>
-                            <div class="text-muted small">ฐานข้อมูล (Database)</div>
-                            <h5 class="fw-bold mt-2" id="dbStatus">Checking...</h5>
+            <div class="col-md-4">
+                <div class="card card-stat p-3 h-100 border-start border-5 border-success">
+                    <div class="d-flex align-items-center">
+                        <div class="flex-grow-1">
+                            <h6 class="text-muted mb-1">Database Status</h6>
+                            <h5 class="fw-bold mb-0" id="dbStatus">Checking...</h5>
                         </div>
-                        <div class="icon-box text-primary"><i class="bi bi-database-check"></i></div>
+                        <i class="bi bi-database-check fs-1 text-success opacity-50"></i>
                     </div>
                     <hr>
-                    <div class="small text-muted">
-                        พนักงาน: <b id="empCount">-</b> คน<br>
-                        บันทึกเวลา: <b id="logCount">-</b> รายการ
+                    <div class="d-flex justify-content-between small">
+                        <span>พนักงาน: <b id="empCount">-</b></span>
+                        <span>Logs: <b id="logCount">-</b></span>
                     </div>
                 </div>
             </div>
 
-            <div class="col-md-3">
-                <div class="card card-stat h-100 p-3">
-                    <div class="d-flex justify-content-between">
-                        <div>
-                            <div class="text-muted small">ระบบ AI (DeepFace)</div>
-                            <h5 class="fw-bold mt-2" id="aiStatus">Checking...</h5>
+            <div class="col-md-4">
+                <div class="card card-stat p-3 h-100 border-start border-5 border-primary">
+                    <div class="d-flex align-items-center">
+                        <div class="flex-grow-1">
+                            <h6 class="text-muted mb-1">AI Engine (DeepFace)</h6>
+                            <h5 class="fw-bold mb-0" id="aiStatus">Checking...</h5>
                         </div>
-                        <div class="icon-box text-info"><i class="bi bi-cpu-fill"></i></div>
+                        <i class="bi bi-robot fs-1 text-primary opacity-50"></i>
                     </div>
                     <hr>
-                    <div class="small text-muted">
-                        จดจำใบหน้าแล้ว: <b id="faceCount">-</b> คน<br>
-                        Model: Facenet512
-                    </div>
+                    <small class="text-muted">โหลดใบหน้าใน RAM: <b id="faceCount">-</b> รายการ</small>
                 </div>
             </div>
 
-            <div class="col-md-3">
-                <div class="card card-stat h-100 p-3">
-                    <div class="d-flex justify-content-between">
-                        <div>
-                            <div class="text-muted small">พื้นที่จัดเก็บ (Disk)</div>
-                            <h5 class="fw-bold mt-2" id="diskUsage">Checking...</h5>
+            <div class="col-md-4">
+                <div class="card card-stat p-3 h-100 border-start border-5 border-info">
+                    <div class="d-flex align-items-center">
+                        <div class="flex-grow-1">
+                            <h6 class="text-muted mb-1">Telegram Noti</h6>
+                            <h5 class="fw-bold mb-0" id="tgStatus">Checking...</h5>
                         </div>
-                        <div class="icon-box text-warning"><i class="bi bi-hdd-fill"></i></div>
+                        <i class="bi bi-telegram fs-1 text-info opacity-50"></i>
                     </div>
                     <hr>
-                    <div class="progress" style="height: 10px;">
-                        <div class="progress-bar bg-warning" id="diskBar" role="progressbar" style="width: 0%"></div>
-                    </div>
-                    <div class="small text-muted mt-2">
-                        ว่าง: <span id="diskFree">-</span> GB (จาก <span id="diskTotal">-</span>)
-                    </div>
-                </div>
-            </div>
-
-            <div class="col-md-3">
-                <div class="card card-stat h-100 p-3">
-                    <div class="d-flex justify-content-between">
-                        <div>
-                            <div class="text-muted small">การแจ้งเตือน (Telegram)</div>
-                            <h5 class="fw-bold mt-2" id="tgStatus">Checking...</h5>
-                        </div>
-                        <div class="icon-box text-success"><i class="bi bi-telegram"></i></div>
-                    </div>
-                    <hr>
-                    <button class="btn btn-sm btn-outline-success w-100" onclick="testTelegram()">
-                        <i class="bi bi-send-fill"></i> กดทดสอบส่งข้อความ
+                    <button class="btn btn-sm btn-outline-info w-100" onclick="testTelegram()">
+                        <i class="bi bi-send"></i> กดทดสอบส่งข้อความ
                     </button>
                 </div>
             </div>
-
         </div>
 
-        <div class="card mt-4 p-4 shadow-sm border-0">
-            <h5 class="fw-bold text-secondary mb-3">🛠️ การตั้งค่าระบบปัจจุบัน (.env)</h5>
-            <div class="table-responsive">
-                <table class="table table-bordered table-sm">
-                    <tbody id="configTable">
-                        </tbody>
-                </table>
-            </div>
-        </div>
     </div>
 
     <script>
@@ -139,74 +149,66 @@
                 const res = await axios.get(`${API_URL}/api/system/status`);
                 const data = res.data;
 
-                // 1. Database
-                const dbStat = document.getElementById('dbStatus');
+                document.getElementById('serverTime').innerText = data.time;
+
+                // 1. Update CPU
+                updateBar('cpu', data.cpu.percent);
+                document.getElementById('cpuCore').innerText = `${data.cpu.cores} Logical Cores`;
+
+                // 2. Update RAM
+                updateBar('ram', data.ram.percent);
+                document.getElementById('ramDetail').innerText = `${data.ram.used} / ${data.ram.total} (Free: ${data.ram.free})`;
+
+                // 3. Update Disk
+                updateBar('disk', data.storage.percent);
+                document.getElementById('diskDetail').innerText = `${data.storage.used} / ${data.storage.total}`;
+
+                // 4. DB Status
+                const dbEl = document.getElementById('dbStatus');
                 if(data.database.status === "OK") {
-                    dbStat.innerHTML = '<span class="text-success">🟢 เชื่อมต่อปกติ</span>';
+                    dbEl.innerHTML = '<span class="text-success">🟢 Online</span>';
                     document.getElementById('empCount').innerText = data.database.employees;
                     document.getElementById('logCount').innerText = data.database.logs;
                 } else {
-                    dbStat.innerHTML = '<span class="text-danger">🔴 เชื่อมต่อไม่ได้</span>';
+                    dbEl.innerHTML = '<span class="text-danger">🔴 Error</span>';
                 }
 
-                // 2. AI
+                // 5. AI Status
                 document.getElementById('aiStatus').innerText = data.ai_model.status;
                 document.getElementById('faceCount').innerText = data.ai_model.faces_loaded;
 
-                // 3. Disk
-                document.getElementById('diskUsage').innerText = `ใช้ไป ${data.storage.percent}%`;
-                document.getElementById('diskFree').innerText = data.storage.free;
-                document.getElementById('diskTotal').innerText = data.storage.total;
-                document.getElementById('diskBar').style.width = `${data.storage.percent}%`;
+                // 6. Telegram
+                const tgEl = document.getElementById('tgStatus');
+                tgEl.innerHTML = data.telegram.enabled ? '<span class="text-success">✅ Enabled</span>' : '<span class="text-muted">⚪ Disabled</span>';
 
-                // 4. Telegram
-                const tgStat = document.getElementById('tgStatus');
-                if(data.telegram.enabled) {
-                    tgStat.innerHTML = '<span class="text-success">🟢 เปิดใช้งาน</span>';
-                } else {
-                    tgStat.innerHTML = '<span class="text-secondary">⚪ ปิดใช้งาน</span>';
-                }
+            } catch (e) { console.error(e); }
+        }
 
-                // 5. Config Info
-                const tbl = document.getElementById('configTable');
-                tbl.innerHTML = `
-                    <tr><td width="200" class="bg-light">Server Time</td><td>${data.time}</td></tr>
-                    <tr><td class="bg-light">Server Host</td><td>${window.location.hostname}</td></tr>
-                    <tr><td class="bg-light">AI Threshold</td><td>(ดูใน .env)</td></tr>
-                    <tr><td class="bg-light">DB File</td><td>attendance.db</td></tr>
-                `;
-
-            } catch (e) {
-                console.error(e);
-                Swal.fire('Error', 'ไม่สามารถเชื่อมต่อ Server API ได้', 'error');
-            }
+        function updateBar(id, percent) {
+            document.getElementById(`${id}Val`).innerText = `${percent}%`;
+            const bar = document.getElementById(`${id}Bar`);
+            bar.style.width = `${percent}%`;
+            
+            // เปลี่ยนสีตามความรุนแรง
+            bar.className = 'progress-bar'; // Reset class
+            if(percent < 50) bar.classList.add('bg-success');
+            else if(percent < 80) bar.classList.add('bg-warning');
+            else bar.classList.add('bg-danger');
         }
 
         async function testTelegram() {
             try {
-                const btn = event.target;
-                const oldText = btn.innerHTML;
-                btn.innerHTML = '⏳ กำลังส่ง...';
-                btn.disabled = true;
-
+                const btn = event.target; 
+                btn.disabled = true; btn.innerText = "Sending...";
                 const res = await axios.post(`${API_URL}/api/system/test-telegram`);
-                
-                if(res.data.status === "success"){
-                    Swal.fire('สำเร็จ', 'ส่งข้อความเข้า Telegram เรียบร้อย!', 'success');
-                } else {
-                    Swal.fire('ล้มเหลว', res.data.message, 'error');
-                }
-                
-                btn.innerHTML = oldText;
-                btn.disabled = false;
-            } catch(e) {
-                Swal.fire('Error', 'เชื่อมต่อ Server ไม่ได้', 'error');
-            }
+                if(res.data.status === "success") Swal.fire('Success', 'ส่งข้อความแล้ว', 'success');
+                else Swal.fire('Fail', res.data.message, 'error');
+                btn.disabled = false; btn.innerHTML = '<i class="bi bi-send"></i> กดทดสอบส่งข้อความ';
+            } catch(e) { Swal.fire('Error', 'Connect Error', 'error'); }
         }
 
-        // Auto Refresh ทุก 30 วินาที
         loadStatus();
-        setInterval(loadStatus, 30000);
+        setInterval(loadStatus, 5000); // รีเฟรชทุก 5 วินาที
     </script>
 </body>
 </html>

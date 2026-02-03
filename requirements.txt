@@ -1,19 +1,22 @@
-# --- Core AI & Image Processing ---
+# --- Core Web Server & API ---
+fastapi
+uvicorn
+python-multipart
+requests
+python-dotenv
+
+# --- AI & Image Processing ---
 deepface
 opencv-python
 numpy
 pillow
 
-# --- Server (API & Database) ---
-fastapi
-uvicorn
-python-multipart
-requests
+# --- System Monitor & Utilities ---
+psutil
+shutil
 
-# --- Client (GUI & Audio) ---
+# --- Client Side (GUI & Audio) ---
 PyQt6
 gTTS
 pygame
-
-# --- Utilities ---
-# (winsound มีมากับ Python Windows อยู่แล้ว ไม่ต้อง install)
+# (winsound ไม่ต้องลง เป็น built-in ของ Windows)

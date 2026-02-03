@@ -7,6 +7,7 @@ import numpy as np
 import threading
 import requests
 import json
+import psutil
 from typing import Optional
 from datetime import datetime
 from dotenv import load_dotenv # โหลดค่าจากไฟล์ .env
@@ -534,16 +535,35 @@ async def view_print():
 
 @app.get("/api/system/status")
 async def system_status():
-    """เช็คสถานะรวมของระบบ (Database, Disk, AI, Config)"""
+    """เช็คสถานะรวมของระบบ + CPU/RAM"""
+    
+    # ดึงข้อมูล Memory
+    mem = psutil.virtual_memory()
+    
     status = {
         "server": "Online",
-        "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "time": datetime.now().strftime("%H:%M:%S"),
+        
+        # --- [ใหม่] ข้อมูล CPU & RAM ---
+        "cpu": {
+            "percent": psutil.cpu_percent(interval=None), # % การทำงาน CPU
+            "cores": psutil.cpu_count() # จำนวน Core
+        },
+        "ram": {
+            "percent": mem.percent, # % การใช้แรม
+            "used": f"{mem.used // (1024**3)} GB",
+            "total": f"{mem.total // (1024**3)} GB",
+            "free": f"{mem.available // (1024**3)} GB"
+        },
+        # -----------------------------
+
         "database": {"status": "Unknown", "employees": 0, "logs": 0},
         "storage": {"total": 0, "used": 0, "free": 0, "percent": 0},
         "ai_model": {"status": "Not Loaded", "faces_loaded": 0},
         "telegram": {"enabled": ENABLE_TELEGRAM, "token_status": "Unknown"}
     }
 
+    # ... (ส่วนเช็ค Database, AI, Storage, Telegram ของเดิม คงไว้เหมือนเดิม) ...
     # 1. เช็ค Database
     try:
         conn = get_db_conn()
@@ -559,24 +579,20 @@ async def system_status():
 
     # 2. เช็ค AI Model
     status["ai_model"]["faces_loaded"] = len(known_names)
-    status["ai_model"]["status"] = "Ready" if len(known_names) > 0 else "Idle/Empty"
+    status["ai_model"]["status"] = "Ready" if len(known_names) > 0 else "Idle"
 
-    # 3. เช็ค Disk Space (Drive ที่รันโปรแกรม)
+    # 3. เช็ค Disk
     try:
         total, used, free = shutil.disk_usage(".")
         status["storage"] = {
             "total": f"{total // (2**30)} GB",
             "used": f"{used // (2**30)} GB",
-            "free": f"{free // (2**30)} GB",
             "percent": round((used / total) * 100, 1)
         }
     except: pass
 
-    # 4. เช็ค Telegram Connection (Passive)
-    if ENABLE_TELEGRAM:
-        status["telegram"]["token_status"] = "Configured"
-    else:
-        status["telegram"]["token_status"] = "Disabled"
+    # 4. เช็ค Telegram
+    status["telegram"]["token_status"] = "Configured" if ENABLE_TELEGRAM else "Disabled"
 
     return status
 
