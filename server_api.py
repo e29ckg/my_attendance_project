@@ -530,6 +530,80 @@ async def update_remark(
 async def view_print():
     return FileResponse("report_print.html")
 
+# --- SYSTEM MONITOR API ---
+
+@app.get("/api/system/status")
+async def system_status():
+    """เช็คสถานะรวมของระบบ (Database, Disk, AI, Config)"""
+    status = {
+        "server": "Online",
+        "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "database": {"status": "Unknown", "employees": 0, "logs": 0},
+        "storage": {"total": 0, "used": 0, "free": 0, "percent": 0},
+        "ai_model": {"status": "Not Loaded", "faces_loaded": 0},
+        "telegram": {"enabled": ENABLE_TELEGRAM, "token_status": "Unknown"}
+    }
+
+    # 1. เช็ค Database
+    try:
+        conn = get_db_conn()
+        cur = conn.cursor()
+        cur.execute("SELECT Count(*) FROM employees")
+        status["database"]["employees"] = cur.fetchone()[0]
+        cur.execute("SELECT Count(*) FROM attendance_logs")
+        status["database"]["logs"] = cur.fetchone()[0]
+        conn.close()
+        status["database"]["status"] = "OK"
+    except Exception as e:
+        status["database"]["status"] = f"Error: {str(e)}"
+
+    # 2. เช็ค AI Model
+    status["ai_model"]["faces_loaded"] = len(known_names)
+    status["ai_model"]["status"] = "Ready" if len(known_names) > 0 else "Idle/Empty"
+
+    # 3. เช็ค Disk Space (Drive ที่รันโปรแกรม)
+    try:
+        total, used, free = shutil.disk_usage(".")
+        status["storage"] = {
+            "total": f"{total // (2**30)} GB",
+            "used": f"{used // (2**30)} GB",
+            "free": f"{free // (2**30)} GB",
+            "percent": round((used / total) * 100, 1)
+        }
+    except: pass
+
+    # 4. เช็ค Telegram Connection (Passive)
+    if ENABLE_TELEGRAM:
+        status["telegram"]["token_status"] = "Configured"
+    else:
+        status["telegram"]["token_status"] = "Disabled"
+
+    return status
+
+@app.post("/api/system/test-telegram")
+async def test_telegram():
+    """ปุ่มกดทดสอบส่งข้อความเข้า Telegram"""
+    if not ENABLE_TELEGRAM:
+        return {"status": "error", "message": "Telegram ไม่ได้เปิดใช้งานใน .env"}
+    
+    try:
+        msg = f"🔔 <b>System Test</b>\nทดสอบการเชื่อมต่อ Telegram สำเร็จ!\nเวลา: {datetime.now().strftime('%H:%M:%S')}"
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        data = {'chat_id': TELEGRAM_CHAT_ID, 'text': msg, 'parse_mode': 'HTML'}
+        
+        resp = requests.post(url, data=data, timeout=5)
+        if resp.status_code == 200:
+            return {"status": "success", "message": "ส่งข้อความทดสอบสำเร็จ"}
+        else:
+            return {"status": "error", "message": f"Telegram API Error: {resp.text}"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+# เพิ่ม Route สำหรับเปิดหน้า Monitor
+@app.get("/monitor")
+async def view_monitor():
+    return FileResponse("monitor.html")
+
 @app.get("/health")
 async def health_check():
     """API สำหรับเช็คว่า Server ยังรอดอยู่ไหม"""
