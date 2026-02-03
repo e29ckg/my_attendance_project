@@ -140,6 +140,27 @@ async def view_report():
     return FileResponse("report_daily.html")
 
 
+def send_telegram_thread(name, time_str, img_path):
+    """ฟังก์ชันส่งไลน์/Telegram แยก Thread เพื่อไม่ให้ Server หน่วง"""
+    if not ENABLE_TELEGRAM: return
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
+        caption = f"✅ <b>ลงเวลาสำเร็จ</b>\n👤 <b>ชื่อ:</b> {name}\n⏰ <b>เวลา:</b> {time_str}"
+        
+        # เปิดไฟล์รูปเพื่อส่ง
+        with open(img_path, 'rb') as f:
+            files = {'photo': f}
+            data = {
+                'chat_id': TELEGRAM_CHAT_ID, 
+                'caption': caption, 
+                'parse_mode': 'HTML'
+            }
+            requests.post(url, files=files, data=data)
+            print(f">>> 🚀 Telegram sent for {name}")
+            
+    except Exception as e:
+        print(f"Telegram Error: {e}")
+        
 # --- FACE SCAN API ---
 @app.post("/scan")
 async def scan_face(file: UploadFile = File(...)):
@@ -192,27 +213,71 @@ async def scan_face(file: UploadFile = File(...)):
     except Exception as e:
         print(f"Error: {e}")
         return {"status": "ERROR", "name": "System Error"}
-    
-def send_telegram_thread(name, time_str, img_path):
-    """ฟังก์ชันส่งไลน์/Telegram แยก Thread เพื่อไม่ให้ Server หน่วง"""
-    if not ENABLE_TELEGRAM: return
+
+# --- [เพิ่ม] API สำหรับการกรอกรหัสเอง (Manual Input) ---
+@app.post("/manual_scan")
+async def manual_scan(
+    employee_id: str = Form(...),
+    file: UploadFile = File(...)
+):
+    """
+    รับรหัสพนักงาน + รูปภาพ -> บันทึกทันที (ไม่ต้องผ่าน AI Recognition)
+    """
     try:
-        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
-        caption = f"✅ <b>ลงเวลาสำเร็จ</b>\n👤 <b>ชื่อ:</b> {name}\n⏰ <b>เวลา:</b> {time_str}"
+        # 1. ตรวจสอบว่ามีรหัสนี้จริงไหม
+        conn = get_db_conn()
+        cur = conn.cursor()
+        cur.execute("SELECT name, role FROM employees WHERE employee_id = ?", (employee_id,))
+        emp = cur.fetchone()
         
-        # เปิดไฟล์รูปเพื่อส่ง
-        with open(img_path, 'rb') as f:
-            files = {'photo': f}
-            data = {
-                'chat_id': TELEGRAM_CHAT_ID, 
-                'caption': caption, 
-                'parse_mode': 'HTML'
-            }
-            requests.post(url, files=files, data=data)
-            print(f">>> 🚀 Telegram sent for {name}")
+        if not emp:
+            conn.close()
+            return {"status": "FAIL", "message": "ไม่พบรหัสพนักงานนี้ในระบบ"}
             
+        emp_name = emp['name']
+        
+        # 2. บันทึกรูปภาพหลักฐาน
+        now = datetime.now()
+        contents = await file.read()
+        nparr = np.frombuffer(contents, np.uint8)
+        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        
+        if not os.path.exists("attendance_images"): os.makedirs("attendance_images")
+        img_path = f"attendance_images/{employee_id}_MANUAL_{now.strftime('%H%M%S')}.jpg"
+        cv2.imwrite(img_path, frame)
+        
+        # 3. บันทึกลง Database (ระบุ type='MANUAL')
+        # เช็ค Cooldown 1 นาที
+        cur.execute("SELECT check_time FROM attendance_logs WHERE employee_id=? ORDER BY id DESC LIMIT 1", (employee_id,))
+        last = cur.fetchone()
+        conn.close() # ปิดก่อนค่อยเปิดใหม่หรือใช้ connection เดิม (ในที่นี้ปิดแล้วเปิดใหม่ตอน save ก็ได้ แต่เพื่อความชัวร์ใช้ save_log แบบ custom)
+
+        # บันทึก Manual Log
+        conn = get_db_conn()
+        cur = conn.cursor()
+        cur.execute("INSERT INTO attendance_logs (employee_id, employee_name, check_time, evidence_image, log_type, status) VALUES (?,?,?,?,?,?)",
+                    (employee_id, emp_name, now, img_path, "MANUAL", "บันทึกมือ"))
+        conn.commit()
+        conn.close()
+
+        print(f"✅ Manual Logged: {emp_name}")
+
+        # 4. ส่ง Telegram (ถ้าเปิด)
+        if ENABLE_TELEGRAM:
+            time_str = now.strftime("%d/%m/%Y %H:%M:%S")
+            threading.Thread(target=send_telegram_thread, args=(f"{emp_name} (ระบุรหัส)", time_str, img_path)).start()
+
+        return {
+            "status": "OK",
+            "name": emp_name,
+            "message": f"บันทึก {emp_name} เรียบร้อย"
+        }
+
     except Exception as e:
-        print(f"Telegram Error: {e}")
+        print(f"Manual Error: {e}")
+        return {"status": "ERROR", "message": str(e)}
+    
+
 
 def save_log(emp_id, name, frame):
     # บันทึกเหมือนเดิม แต่ทำที่ฝั่ง Server

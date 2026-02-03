@@ -16,9 +16,8 @@ import pygame
 # --- CONFIG ---
 # ⚠️ เปลี่ยน localhost เป็น IP ของเครื่อง Server (เช่น http://192.168.1.50:9876)
 SERVER_URL = "http://localhost:9876" 
-CAMERA_INDEX = 1  # ปรับเลขกล้องตามต้องการ (0=กล้องหลัก, 1=กล้องเสริม)
+CAMERA_INDEX = 1  # 0 = กล้องหลัก, 1 = กล้องเสริม
 CHECK_INTERVAL = 5  # เช็ค Server ทุก 5 วินาที
-
 
 # เริ่มระบบเสียง
 try:
@@ -39,7 +38,7 @@ def play_greeting(name):
         
         # ถ้ายังไม่มีไฟล์เสียง ให้ Google สร้างให้
         if not os.path.exists(filename):
-            print(f"🔊 สร้างเสียงใหม่สำหรับ: {name}")
+            # print(f"🔊 สร้างเสียงใหม่สำหรับ: {name}")
             tts = gTTS(text=f"สวัสดีค่ะ คุณ{name}", lang='th')
             tts.save(filename)
             
@@ -52,7 +51,6 @@ def play_greeting(name):
         
     except Exception as e:
         print(f"TTS Error: {e}")
-        # ถ้ามีปัญหาเรื่องเสียง ให้ Beep แทน
         winsound.Beep(1000, 200)
 
 # --- WORKER: เช็คสถานะ Server (Heartbeat) ---
@@ -74,7 +72,7 @@ class ServerStatusThread(QThread):
             
             self.sleep(CHECK_INTERVAL)
 
-# --- WORKER: ส่งภาพสแกน ---
+# --- WORKER: ส่งภาพสแกน (Auto Scan) ---
 class NetworkThread(QThread):
     result_ready = pyqtSignal(dict)
     
@@ -85,7 +83,7 @@ class NetworkThread(QThread):
 
     def request_scan(self, frame):
         if not self.is_busy:
-            # 1. ย่อภาพก่อนส่ง (Resize) เพื่อลดขนาดไฟล์และแก้ปัญหา Timeout
+            # ย่อภาพก่อนส่ง
             h, w = frame.shape[:2]
             target_width = 640
             if w > target_width:
@@ -102,8 +100,7 @@ class NetworkThread(QThread):
                 _, img_encoded = cv2.imencode('.jpg', self.frame_to_send)
                 files = {'file': ('image.jpg', img_encoded.tobytes(), 'image/jpeg')}
                 
-                # 2. เพิ่ม Timeout เป็น 15 วินาที (เผื่อ Server ประมวลผลนาน)
-                response = requests.post(f"{SERVER_URL}/scan", files=files, timeout=15)
+                response = requests.post(f"{SERVER_URL}/scan", files=files, timeout=10)
                 
                 if response.status_code == 200:
                     self.result_ready.emit(response.json())
@@ -117,17 +114,18 @@ class ClientWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Smart Attendance Kiosk")
-        self.setFixedSize(1000, 700)
+        self.setFixedSize(1000, 750) # เพิ่มความสูงเผื่อส่วน Manual
         
-        # ตัวแปรจำชื่อคนล่าสุด (เพื่อไม่ให้พูดซ้ำ)
         self.last_greeted_name = None 
+        self.is_manual_mode = False # สถานะโหมดฉุกเฉิน
+        self.current_frame = None # เก็บภาพปัจจุบันไว้ส่ง Manual
         
         # GUI Setup
         central = QWidget()
         self.setCentralWidget(central)
         main_layout = QVBoxLayout(central)
 
-        # Header Status
+        # Header
         header_layout = QHBoxLayout()
         title = QLabel("📷 ระบบลงเวลาทำงาน (Face Recognition)")
         title.setStyleSheet("font-size: 18px; font-weight: bold;")
@@ -139,10 +137,10 @@ class ClientWindow(QMainWindow):
         header_layout.addWidget(self.lbl_server_status)
         main_layout.addLayout(header_layout)
 
-        # Content Layout
+        # Content
         content_layout = QHBoxLayout()
         
-        # Left: Camera
+        # --- Left: Camera & Manual Input ---
         left_layout = QVBoxLayout()
         self.video = QLabel()
         self.video.setFixedSize(640, 480)
@@ -151,11 +149,44 @@ class ClientWindow(QMainWindow):
         
         self.lbl_action = QLabel("กรุณามองกล้อง...")
         self.lbl_action.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_action.setStyleSheet("font-size: 24px; font-weight: bold; color: #333; margin-top: 15px;")
+        self.lbl_action.setStyleSheet("font-size: 24px; font-weight: bold; color: #333; margin-top: 10px;")
         left_layout.addWidget(self.lbl_action)
+
+        # [NEW] Manual Input Section (ซ่อนอยู่)
+        self.manual_widget = QWidget()
+        self.manual_widget.setStyleSheet("background: #f0f0f0; border-radius: 10px; margin-top: 10px;")
+        man_layout = QHBoxLayout(self.manual_widget)
+        
+        self.txt_manual_id = QLineEdit()
+        self.txt_manual_id.setPlaceholderText("กรอกรหัสพนักงาน...")
+        self.txt_manual_id.setFont(QFont("Tahoma", 14))
+        self.txt_manual_id.setStyleSheet("padding: 5px;")
+        
+        btn_send_manual = QPushButton("📸 บันทึก")
+        btn_send_manual.setStyleSheet("background: #28a745; color: white; font-weight: bold; padding: 8px;")
+        btn_send_manual.clicked.connect(self.submit_manual)
+        
+        btn_cancel_manual = QPushButton("❌ ยกเลิก")
+        btn_cancel_manual.setStyleSheet("background: #dc3545; color: white; padding: 8px;")
+        btn_cancel_manual.clicked.connect(self.toggle_manual_mode)
+        
+        man_layout.addWidget(self.txt_manual_id)
+        man_layout.addWidget(btn_send_manual)
+        man_layout.addWidget(btn_cancel_manual)
+        
+        left_layout.addWidget(self.manual_widget)
+        self.manual_widget.hide() # ซ่อนก่อน
+
+        # [NEW] Toggle Button
+        self.btn_toggle_manual = QPushButton("⌨️ ระบบฉุกเฉิน (กรณีสแกนไม่ติด)")
+        self.btn_toggle_manual.setStyleSheet("background: #ffc107; padding: 10px; font-weight: bold; border: none;")
+        self.btn_toggle_manual.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_toggle_manual.clicked.connect(self.toggle_manual_mode)
+        left_layout.addWidget(self.btn_toggle_manual)
+
         content_layout.addLayout(left_layout)
 
-        # Right: Clock & Table
+        # --- Right: Clock & Table ---
         right_layout = QVBoxLayout()
         self.lbl_time = QLabel("00:00:00")
         self.lbl_time.setStyleSheet("font-size: 50px; font-weight: bold; color: #0078d7;")
@@ -165,9 +196,7 @@ class ClientWindow(QMainWindow):
         self.table = QTableWidget(10, 2)
         self.table.setHorizontalHeaderLabels(["ชื่อ-สกุล", "เวลาที่บันทึก"])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        # set font for table
-        font = QFont("Tahoma", 12)
-        self.table.setFont(font)
+        self.table.setFont(QFont("Tahoma", 12))
         right_layout.addWidget(self.table)
         content_layout.addLayout(right_layout)
 
@@ -175,7 +204,6 @@ class ClientWindow(QMainWindow):
 
         # --- SYSTEM INIT ---
         self.cap = cv2.VideoCapture(CAMERA_INDEX)
-        # ใช้ Haar Cascade ฝั่ง Client เพื่อประหยัดแรง
         self.face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
         
         # Threads
@@ -189,7 +217,7 @@ class ClientWindow(QMainWindow):
         # Timer Loop
         self.timer = QTimer()
         self.timer.timeout.connect(self.update_camera)
-        self.timer.start(30) # 30ms (~33 FPS)
+        self.timer.start(30)
         
         self.last_scan_time = 0
         self.server_online = False
@@ -203,43 +231,100 @@ class ClientWindow(QMainWindow):
             self.lbl_server_status.setText(f"🔴 Offline ({msg})")
             self.lbl_server_status.setStyleSheet("background: #ffe6e6; color: red; border: 1px solid red; padding:5px; border-radius:5px; font-weight:bold;")
 
+    def toggle_manual_mode(self):
+        """สลับโหมด Manual / Auto"""
+        self.is_manual_mode = not self.is_manual_mode
+        if self.is_manual_mode:
+            self.manual_widget.show()
+            self.btn_toggle_manual.hide()
+            self.lbl_action.setText("กรุณากรอกรหัสพนักงาน...")
+            self.lbl_action.setStyleSheet("color: #d35400; font-size: 24px; font-weight: bold; margin-top: 10px;")
+            self.txt_manual_id.setFocus()
+        else:
+            self.manual_widget.hide()
+            self.btn_toggle_manual.show()
+            self.lbl_action.setText("กรุณามองกล้อง...")
+            self.lbl_action.setStyleSheet("color: #333; font-size: 24px; font-weight: bold; margin-top: 10px;")
+            self.txt_manual_id.clear()
+
+    def submit_manual(self):
+        """ส่งข้อมูล Manual ไป Server"""
+        emp_id = self.txt_manual_id.text().strip()
+        if not emp_id:
+            QMessageBox.warning(self, "แจ้งเตือน", "กรุณากรอกรหัสพนักงาน")
+            return
+            
+        if self.current_frame is None:
+            return
+
+        # UI Feedback
+        self.lbl_action.setText("⏳ กำลังส่งข้อมูล...")
+        QApplication.processEvents()
+
+        try:
+            # ย่อรูป
+            small = cv2.resize(self.current_frame, (0,0), fx=0.5, fy=0.5)
+            _, img_encoded = cv2.imencode('.jpg', small)
+            
+            files = {'file': ('manual.jpg', img_encoded.tobytes(), 'image/jpeg')}
+            data = {'employee_id': emp_id}
+            
+            # ส่งไป API Manual
+            res = requests.post(f"{SERVER_URL}/manual_scan", data=data, files=files, timeout=5)
+            
+            if res.status_code == 200:
+                result = res.json()
+                if result['status'] == 'OK':
+                    QMessageBox.information(self, "สำเร็จ", f"บันทึก: {result['name']}")
+                    self.toggle_manual_mode() # กลับสู่โหมดปกติ
+                else:
+                    QMessageBox.critical(self, "ผิดพลาด", result.get('message', 'Unknown Error'))
+            else:
+                QMessageBox.critical(self, "Error", "Server Error")
+                
+        except Exception as e:
+            QMessageBox.critical(self, "Error", str(e))
+        
+        # คืนค่า Text
+        if self.is_manual_mode:
+            self.lbl_action.setText("กรุณากรอกรหัสพนักงาน...")
+
     def update_camera(self):
-        # Update Clock
         self.lbl_time.setText(datetime.now().strftime("%H:%M:%S"))
         
         ret, frame = self.cap.read()
         if ret:
-            # Face Detection (Client Side)
-            # ย่อภาพเฉพาะตอน detect หน้า (เพื่อความเร็ว)
-            small = cv2.resize(frame, (0,0), fx=0.5, fy=0.5)
-            gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
-            faces = self.face_cascade.detectMultiScale(gray, 1.2, 5)
-            
-            face_found = False
-            for (x, y, w, h) in faces:
-                rx, ry, rw, rh = x*2, y*2, w*2, h*2
+            frame = cv2.flip(frame, 1) # กลับด้านกระจก
+            self.current_frame = frame.copy() # เก็บภาพไว้ใช้ Manual
+
+            # --- Auto Mode Logic ---
+            if not self.is_manual_mode:
+                # Detect Face
+                small = cv2.resize(frame, (0,0), fx=0.5, fy=0.5)
+                gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
+                faces = self.face_cascade.detectMultiScale(gray, 1.2, 5)
                 
-                # กรอบสีเขียวถ้า Server พร้อม / สีแดงถ้า Server ดับ
-                color = (0, 255, 0) if self.server_online else (0, 0, 255)
-                cv2.rectangle(frame, (rx, ry), (rx+rw, ry+rh), color, 2)
-                face_found = True
+                face_found = False
+                for (x, y, w, h) in faces:
+                    rx, ry, rw, rh = x*2, y*2, w*2, h*2
+                    color = (0, 255, 0) if self.server_online else (0, 0, 255)
+                    cv2.rectangle(frame, (rx, ry), (rx+rw, ry+rh), color, 2)
+                    face_found = True
 
-            # Logic การส่งสแกน
-            if face_found and self.server_online and not self.net_worker.is_busy:
-                # ส่งทุก 2.5 วินาที
-                if (time.time() - self.last_scan_time) > 2.5:
-                    self.lbl_action.setText("⏳ กำลังตรวจสอบ...")
-                    self.net_worker.request_scan(frame)
-                    self.last_scan_time = time.time()
-            elif not self.server_online:
-                self.lbl_action.setText("❌ Server ไม่เชื่อมต่อ")
-            elif not face_found:
-                self.lbl_action.setText("กรุณามองกล้อง...")
-                # ถ้านานเกิน 5 วิ ไม่เจอหน้า ให้รีเซ็ตคนล่าสุด เพื่อให้ทักใหม่ได้เมื่อกลับมา
-                if (time.time() - self.last_scan_time) > 5.0:
-                    self.last_greeted_name = None
-
-            # แสดงผล video
+                # ส่ง Scan
+                if face_found and self.server_online and not self.net_worker.is_busy:
+                    if (time.time() - self.last_scan_time) > 2.5:
+                        self.lbl_action.setText("⏳ กำลังตรวจสอบ...")
+                        self.net_worker.request_scan(frame)
+                        self.last_scan_time = time.time()
+                elif not self.server_online:
+                    self.lbl_action.setText("❌ Server ไม่เชื่อมต่อ")
+                elif not face_found:
+                    self.lbl_action.setText("กรุณามองกล้อง...")
+                    if (time.time() - self.last_scan_time) > 5.0:
+                        self.last_greeted_name = None
+            
+            # Show Video
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             h, w, ch = frame.shape
             qimg = QImage(frame.data, w, h, ch*w, QImage.Format.Format_RGB888)
@@ -249,33 +334,27 @@ class ClientWindow(QMainWindow):
         if data['status'] == 'OK':
             name = data['name']
             
-            # --- Logic การทักทาย ---
+            # ทักทาย
             if name != self.last_greeted_name:
-                # คนใหม่ -> พูดชื่อ
                 threading.Thread(target=play_greeting, args=(name,), daemon=True).start()
                 self.last_greeted_name = name
             else:
-                # คนเดิม -> แค่ Beep เบาๆ
                 winsound.Beep(2000, 100) 
 
-            # --- Update UI ---
+            # Update UI
             self.lbl_action.setText(f"✅ ยินดีต้อนรับ: {name}")
-            self.lbl_action.setStyleSheet("font-size: 24px; font-weight: bold; color: green; margin-top: 15px;")
+            self.lbl_action.setStyleSheet("font-size: 24px; font-weight: bold; color: green; margin-top: 10px;")
             
-            # Formatted Date/Time (Thai)
+            # Update Table
             now = datetime.now()
             thai_datetime = f"{now.day:02}/{now.month:02}/{now.year+543} {now.strftime('%H:%M:%S')}"
-
-            # Insert Table
             self.table.insertRow(0)
             self.table.setItem(0, 0, QTableWidgetItem(name))
             self.table.setItem(0, 1, QTableWidgetItem(thai_datetime))
             
         else:
-            # กรณีสแกนไม่ผ่าน
-            # winsound.Beep(500, 300)
             self.lbl_action.setText("❌ ไม่พบข้อมูล / กรุณาลองใหม่")
-            self.lbl_action.setStyleSheet("font-size: 24px; font-weight: bold; color: red; margin-top: 15px;")
+            self.lbl_action.setStyleSheet("font-size: 24px; font-weight: bold; color: red; margin-top: 10px;")
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

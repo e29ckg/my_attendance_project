@@ -1,22 +1,27 @@
-# --- Core Web Server & API ---
+# ==========================================
+# 📦 Common Libraries (ใช้ทั้ง Server และ Client)
+# ==========================================
+opencv-python
+numpy
+requests
+
+# ==========================================
+# 🧠 Server Side (API, AI, Database, Monitor)
+# ==========================================
 fastapi
 uvicorn
 python-multipart
-requests
-python-dotenv
-
-# --- AI & Image Processing ---
 deepface
-opencv-python
-numpy
-pillow
-
-# --- System Monitor & Utilities ---
+python-dotenv
 psutil
-shutil
+pillow
+# shutil (มีใน Python อยู่แล้ว ไม่ต้อง install)
+# sqlite3 (มีใน Python อยู่แล้ว ไม่ต้อง install)
 
-# --- Client Side (GUI & Audio) ---
+# ==========================================
+# 🖥️ Client Side (GUI, Audio, Kiosk)
+# ==========================================
 PyQt6
 gTTS
 pygame
-# (winsound ไม่ต้องลง เป็น built-in ของ Windows)
+# winsound (มีใน Python Windows อยู่แล้ว)
