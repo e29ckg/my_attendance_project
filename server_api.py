@@ -565,7 +565,7 @@ async def get_daily_report(date: str, role: str = "all"):
         })
         
     conn.close()
-    report_data.sort(key=lambda x: x['time_in'] if x['time_in'] != "-" else "99:99:99")
+    # report_data.sort(key=lambda x: x['time_in'] if x['time_in'] != "-" else "99:99:99")
     return report_data
 
 # ค้นหาฟังก์ชันนี้ใน server_api.py แล้วแก้ตามนี้ครับ
