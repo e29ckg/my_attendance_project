@@ -12,12 +12,18 @@ from PyQt6.QtCore import *
 from PyQt6.QtGui import *
 from gtts import gTTS
 import pygame
+from PIL import Image, ImageDraw, ImageFont # ใช้สำหรับวาดภาษาไทย
+from dotenv import load_dotenv # โหลดค่าจาก .env
 
-# --- CONFIG ---
-# ⚠️ เปลี่ยน localhost เป็น IP ของเครื่อง Server (เช่น http://192.168.1.50:9876)
-SERVER_URL = "http://localhost:9876" 
-CAMERA_INDEX = 1  # 0 = กล้องหลัก, 1 = กล้องเสริม
-CHECK_INTERVAL = 5  # เช็ค Server ทุก 5 วินาที
+# --- CONFIG LOADING ---
+load_dotenv() # อ่านไฟล์ .env
+
+# อ่านค่าจาก .env ถ้าไม่มีจะใช้ค่า Default (ตัวหลังคอมม่า)
+SERVER_URL = os.getenv("SERVER_URL", "http://localhost:9876")
+CAMERA_INDEX = int(os.getenv("CAMERA_INDEX", 0))
+CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL", 5))
+
+print(f"⚙️ Config Loaded: Server={SERVER_URL}, Cam={CAMERA_INDEX}")
 
 # เริ่มระบบเสียง
 try:
@@ -25,37 +31,56 @@ try:
 except:
     pass
 
+# --- HELPER: วาดข้อความภาษาไทย (PIL) ---
+def draw_thai_text(img, text, pos, color=(0, 255, 0), size=30):
+    """วาดข้อความภาษาไทยด้วย PIL"""
+    img_pil = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+    draw = ImageDraw.Draw(img_pil)
+    
+    try:
+        # พยายามใช้ฟอนต์ Tahoma (มีใน Windows ทุกเครื่อง)
+        font = ImageFont.truetype("tahoma.ttf", size) 
+    except:
+        font = ImageFont.load_default()
+
+    draw.text(pos, text, font=font, fill=color)
+    return cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2BGR)
+
+# --- HELPER: ฝังวันที่เวลาลงในภาพ ---
+def add_timestamp_to_image(image):
+    img_copy = image.copy()
+    h, w = img_copy.shape[:2]
+    now = datetime.now()
+    dt_str = f"{now.day:02}/{now.month:02}/{now.year+543} {now.strftime('%H:%M:%S')}"
+    
+    # พื้นหลังดำจางๆ มุมขวาล่าง
+    cv2.rectangle(img_copy, (w - 220, h - 40), (w, h), (0, 0, 0), -1)
+    
+    # เขียนวันที่ด้วยฟังก์ชันภาษาไทย
+    img_copy = draw_thai_text(img_copy, dt_str, (w - 210, h - 35), (0, 255, 0), 24)
+    
+    return img_copy
+
 # --- GLOBAL FUNCTION: เล่นเสียงทักทาย ---
 def play_greeting(name):
-    """
-    ฟังก์ชันพูดชื่อ: เช็คไฟล์ -> ถ้าไม่มีให้สร้าง -> เล่นเสียง
-    """
     try:
         if not os.path.exists("sounds"):
             os.makedirs("sounds")
-            
         filename = f"sounds/{name}.mp3"
-        
-        # ถ้ายังไม่มีไฟล์เสียง ให้ Google สร้างให้
         if not os.path.exists(filename):
-            # print(f"🔊 สร้างเสียงใหม่สำหรับ: {name}")
-            tts = gTTS(text=f"สวัสดีค่ะ คุณ{name}", lang='th')
+            tts = gTTS(text=f"สวัสดีค่ะ {name}", lang='th')
             tts.save(filename)
-            
-        # รอให้ channel ว่างก่อนเล่น (ป้องกันเสียงตีกัน)
         while pygame.mixer.music.get_busy():
             time.sleep(0.1)
-            
         pygame.mixer.music.load(filename)
         pygame.mixer.music.play()
-        
     except Exception as e:
         print(f"TTS Error: {e}")
         winsound.Beep(1000, 200)
 
-# --- WORKER: เช็คสถานะ Server (Heartbeat) ---
+# --- WORKER: เช็คสถานะ Server ---
 class ServerStatusThread(QThread):
-    status_signal = pyqtSignal(bool, str) # (Online?, Latency)
+    status_signal = pyqtSignal(bool, str)
 
     def run(self):
         while True:
@@ -69,7 +94,6 @@ class ServerStatusThread(QThread):
                     self.status_signal.emit(False, "Error")
             except:
                 self.status_signal.emit(False, "Timeout")
-            
             self.sleep(CHECK_INTERVAL)
 
 # --- WORKER: ส่งภาพสแกน (Auto Scan) ---
@@ -83,14 +107,15 @@ class NetworkThread(QThread):
 
     def request_scan(self, frame):
         if not self.is_busy:
-            # ย่อภาพก่อนส่ง
             h, w = frame.shape[:2]
             target_width = 640
             if w > target_width:
                 scale = target_width / w
                 frame = cv2.resize(frame, (0,0), fx=scale, fy=scale)
             
-            self.frame_to_send = frame
+            # ฝัง Timestamp ก่อนส่ง
+            frame_with_stamp = add_timestamp_to_image(frame)
+            self.frame_to_send = frame_with_stamp
             self.start()
 
     def run(self):
@@ -114,11 +139,13 @@ class ClientWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Smart Attendance Kiosk")
-        self.setFixedSize(1000, 750) # เพิ่มความสูงเผื่อส่วน Manual
+        self.setFixedSize(1000, 750)
         
         self.last_greeted_name = None 
-        self.is_manual_mode = False # สถานะโหมดฉุกเฉิน
-        self.current_frame = None # เก็บภาพปัจจุบันไว้ส่ง Manual
+        self.is_manual_mode = False 
+        self.current_frame = None 
+        self.display_name = None
+        self.display_name_time = 0
         
         # GUI Setup
         central = QWidget()
@@ -140,7 +167,7 @@ class ClientWindow(QMainWindow):
         # Content
         content_layout = QHBoxLayout()
         
-        # --- Left: Camera & Manual Input ---
+        # Left Panel (Camera)
         left_layout = QVBoxLayout()
         self.video = QLabel()
         self.video.setFixedSize(640, 480)
@@ -152,7 +179,7 @@ class ClientWindow(QMainWindow):
         self.lbl_action.setStyleSheet("font-size: 24px; font-weight: bold; color: #333; margin-top: 10px;")
         left_layout.addWidget(self.lbl_action)
 
-        # [NEW] Manual Input Section (ซ่อนอยู่)
+        # Manual Input Widget
         self.manual_widget = QWidget()
         self.manual_widget.setStyleSheet("background: #f0f0f0; border-radius: 10px; margin-top: 10px;")
         man_layout = QHBoxLayout(self.manual_widget)
@@ -175,9 +202,8 @@ class ClientWindow(QMainWindow):
         man_layout.addWidget(btn_cancel_manual)
         
         left_layout.addWidget(self.manual_widget)
-        self.manual_widget.hide() # ซ่อนก่อน
+        self.manual_widget.hide() 
 
-        # [NEW] Toggle Button
         self.btn_toggle_manual = QPushButton("⌨️ ระบบฉุกเฉิน (กรณีสแกนไม่ติด)")
         self.btn_toggle_manual.setStyleSheet("background: #ffc107; padding: 10px; font-weight: bold; border: none;")
         self.btn_toggle_manual.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -186,7 +212,7 @@ class ClientWindow(QMainWindow):
 
         content_layout.addLayout(left_layout)
 
-        # --- Right: Clock & Table ---
+        # Right Panel (List)
         right_layout = QVBoxLayout()
         self.lbl_time = QLabel("00:00:00")
         self.lbl_time.setStyleSheet("font-size: 50px; font-weight: bold; color: #0078d7;")
@@ -202,11 +228,10 @@ class ClientWindow(QMainWindow):
 
         main_layout.addLayout(content_layout)
 
-        # --- SYSTEM INIT ---
+        # SYSTEM INIT
         self.cap = cv2.VideoCapture(CAMERA_INDEX)
         self.face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
         
-        # Threads
         self.net_worker = NetworkThread()
         self.net_worker.result_ready.connect(self.on_scan_result)
         
@@ -214,25 +239,21 @@ class ClientWindow(QMainWindow):
         self.status_worker.status_signal.connect(self.update_server_status)
         self.status_worker.start()
 
-        # Timer Loop
         self.timer = QTimer()
         self.timer.timeout.connect(self.update_camera)
         self.timer.start(30)
-        
-        self.last_scan_time = 0
-        self.server_online = False
 
     def update_server_status(self, is_online, msg):
-        self.server_online = is_online
         if is_online:
             self.lbl_server_status.setText(f"🟢 Online ({msg})")
             self.lbl_server_status.setStyleSheet("background: #e6fffa; color: green; border: 1px solid green; padding:5px; border-radius:5px; font-weight:bold;")
+            self.server_online = True
         else:
             self.lbl_server_status.setText(f"🔴 Offline ({msg})")
             self.lbl_server_status.setStyleSheet("background: #ffe6e6; color: red; border: 1px solid red; padding:5px; border-radius:5px; font-weight:bold;")
+            self.server_online = False
 
     def toggle_manual_mode(self):
-        """สลับโหมด Manual / Auto"""
         self.is_manual_mode = not self.is_manual_mode
         if self.is_manual_mode:
             self.manual_widget.show()
@@ -248,35 +269,31 @@ class ClientWindow(QMainWindow):
             self.txt_manual_id.clear()
 
     def submit_manual(self):
-        """ส่งข้อมูล Manual ไป Server"""
         emp_id = self.txt_manual_id.text().strip()
         if not emp_id:
             QMessageBox.warning(self, "แจ้งเตือน", "กรุณากรอกรหัสพนักงาน")
             return
             
-        if self.current_frame is None:
-            return
+        if self.current_frame is None: return
 
-        # UI Feedback
         self.lbl_action.setText("⏳ กำลังส่งข้อมูล...")
         QApplication.processEvents()
 
         try:
-            # ย่อรูป
-            small = cv2.resize(self.current_frame, (0,0), fx=0.5, fy=0.5)
+            frame_stamp = add_timestamp_to_image(self.current_frame)
+            small = cv2.resize(frame_stamp, (0,0), fx=0.5, fy=0.5)
             _, img_encoded = cv2.imencode('.jpg', small)
             
             files = {'file': ('manual.jpg', img_encoded.tobytes(), 'image/jpeg')}
             data = {'employee_id': emp_id}
             
-            # ส่งไป API Manual
             res = requests.post(f"{SERVER_URL}/manual_scan", data=data, files=files, timeout=5)
             
             if res.status_code == 200:
                 result = res.json()
                 if result['status'] == 'OK':
                     QMessageBox.information(self, "สำเร็จ", f"บันทึก: {result['name']}")
-                    self.toggle_manual_mode() # กลับสู่โหมดปกติ
+                    self.toggle_manual_mode()
                 else:
                     QMessageBox.critical(self, "ผิดพลาด", result.get('message', 'Unknown Error'))
             else:
@@ -285,7 +302,6 @@ class ClientWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e))
         
-        # คืนค่า Text
         if self.is_manual_mode:
             self.lbl_action.setText("กรุณากรอกรหัสพนักงาน...")
 
@@ -294,12 +310,10 @@ class ClientWindow(QMainWindow):
         
         ret, frame = self.cap.read()
         if ret:
-            frame = cv2.flip(frame, 1) # กลับด้านกระจก
-            self.current_frame = frame.copy() # เก็บภาพไว้ใช้ Manual
+            frame = cv2.flip(frame, 1)
+            self.current_frame = frame.copy()
 
-            # --- Auto Mode Logic ---
             if not self.is_manual_mode:
-                # Detect Face
                 small = cv2.resize(frame, (0,0), fx=0.5, fy=0.5)
                 gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
                 faces = self.face_cascade.detectMultiScale(gray, 1.2, 5)
@@ -307,22 +321,28 @@ class ClientWindow(QMainWindow):
                 face_found = False
                 for (x, y, w, h) in faces:
                     rx, ry, rw, rh = x*2, y*2, w*2, h*2
-                    color = (0, 255, 0) if self.server_online else (0, 0, 255)
+                    color = (0, 255, 0) if getattr(self, 'server_online', False) else (0, 0, 255)
+                    
                     cv2.rectangle(frame, (rx, ry), (rx+rw, ry+rh), color, 2)
+                    
+                    # แสดงชื่อไทยบนกรอบ
+                    if self.display_name and (time.time() - self.display_name_time < 5.0):
+                        frame = draw_thai_text(frame, self.display_name, (rx, ry-35), (255, 255, 255), 30)
+                    
                     face_found = True
 
-                # ส่ง Scan
-                if face_found and self.server_online and not self.net_worker.is_busy:
-                    if (time.time() - self.last_scan_time) > 2.5:
+                if face_found and getattr(self, 'server_online', False) and not self.net_worker.is_busy:
+                    if (time.time() - getattr(self, 'last_scan_time', 0)) > 2.5:
                         self.lbl_action.setText("⏳ กำลังตรวจสอบ...")
                         self.net_worker.request_scan(frame)
                         self.last_scan_time = time.time()
-                elif not self.server_online:
+                elif not getattr(self, 'server_online', False):
                     self.lbl_action.setText("❌ Server ไม่เชื่อมต่อ")
                 elif not face_found:
                     self.lbl_action.setText("กรุณามองกล้อง...")
-                    if (time.time() - self.last_scan_time) > 5.0:
+                    if (time.time() - getattr(self, 'last_scan_time', 0)) > 5.0:
                         self.last_greeted_name = None
+                        self.display_name = None
             
             # Show Video
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -333,25 +353,23 @@ class ClientWindow(QMainWindow):
     def on_scan_result(self, data):
         if data['status'] == 'OK':
             name = data['name']
+            self.display_name = name
+            self.display_name_time = time.time()
             
-            # ทักทาย
             if name != self.last_greeted_name:
                 threading.Thread(target=play_greeting, args=(name,), daemon=True).start()
                 self.last_greeted_name = name
             else:
                 winsound.Beep(2000, 100) 
 
-            # Update UI
             self.lbl_action.setText(f"✅ ยินดีต้อนรับ: {name}")
             self.lbl_action.setStyleSheet("font-size: 24px; font-weight: bold; color: green; margin-top: 10px;")
             
-            # Update Table
             now = datetime.now()
             thai_datetime = f"{now.day:02}/{now.month:02}/{now.year+543} {now.strftime('%H:%M:%S')}"
             self.table.insertRow(0)
             self.table.setItem(0, 0, QTableWidgetItem(name))
             self.table.setItem(0, 1, QTableWidgetItem(thai_datetime))
-            
         else:
             self.lbl_action.setText("❌ ไม่พบข้อมูล / กรุณาลองใหม่")
             self.lbl_action.setStyleSheet("font-size: 24px; font-weight: bold; color: red; margin-top: 10px;")
