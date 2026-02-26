@@ -142,6 +142,19 @@
                     </button>
                 </div>
             </div>
+
+            <div class="card mt-4 border-danger shadow-sm">
+                <div class="card-header bg-danger text-white fw-bold">
+                    <i class="bi bi-exclamation-triangle-fill"></i> เขตอันตราย (Danger Zone)
+                </div>
+                <div class="card-body text-center py-4">
+                    <h5 class="text-danger fw-bold">ล้างประวัติการลงเวลาทั้งหมด</h5>
+                    <p class="text-muted">ลบประวัติการสแกนเข้า-ออก และรูปภาพหลักฐานทั้งหมด (ข้อมูลและใบหน้าพนักงานจะไม่ถูกลบ)</p>
+                    <button class="btn btn-outline-danger btn-lg fw-bold" onclick="resetAttendanceData()">
+                        <i class="bi bi-trash3-fill"></i> ล้างข้อมูลเดี๋ยวนี้
+                    </button>
+                </div>
+            </div>
         </div>
 
     </div>
@@ -210,6 +223,38 @@
                 else Swal.fire('Fail', res.data.message, 'error');
                 btn.disabled = false; btn.innerHTML = '<i class="bi bi-send"></i> กดทดสอบส่งข้อความ';
             } catch(e) { Swal.fire('Error', 'Connect Error', 'error'); }
+        }
+
+        async function resetAttendanceData() {
+            // ใช้ SweetAlert2 ถามยืนยันเพื่อป้องกันการเผลอกด
+            const result = await Swal.fire({
+                title: 'ยืนยันการล้างข้อมูล?',
+                text: "ประวัติการสแกนและรูปภาพทั้งหมดจะถูกลบถาวร ไม่สามารถกู้คืนได้! (รายชื่อพนักงานจะยังอยู่ปกติ)",
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#dc3545',
+                cancelButtonColor: '#6c757d',
+                confirmButtonText: 'ใช่, ลบทิ้งเลย!',
+                cancelButtonText: 'ยกเลิก'
+            });
+
+            if (result.isConfirmed) {
+                try {
+                    Swal.fire({ title: 'กำลังลบข้อมูล...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+                    
+                    const res = await axios.delete('/api/system/reset-attendance');
+                    
+                    if(res.data.status === 'success') {
+                        Swal.fire('สำเร็จ!', res.data.message, 'success');
+                        // ถ้าคุณมีฟังก์ชันโหลดข้อมูลหน้า Monitor (เช่น loadSystemStatus) ให้เรียกใช้ตรงนี้เพื่อให้ตัวเลขรีเฟรชเป็น 0
+                        setTimeout(() => location.reload(), 1500); // รีเฟรชหน้าเว็บ
+                    } else {
+                        Swal.fire('ผิดพลาด', res.data.message, 'error');
+                    }
+                } catch(e) {
+                    Swal.fire('Error', 'ไม่สามารถเชื่อมต่อ Server ได้ หรือคุณไม่มีสิทธิ์', 'error');
+                }
+            }
         }
 
         loadStatus();

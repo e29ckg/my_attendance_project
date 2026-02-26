@@ -631,6 +631,35 @@ def cleanup_old_data():
         # รอ 24 ชั่วโมงค่อยทำงานใหม่ (86400 วินาที)
         time.sleep(86400)
 
+@app.delete("/api/system/reset-attendance")
+async def reset_attendance_data(username: str = Depends(verify_admin)):
+    """ล้างข้อมูลประวัติลงเวลาและรูปภาพสแกนทั้งหมด (แต่ข้อมูลพนักงานยังอยู่)"""
+    try:
+        # 1. ล้างข้อมูลใน Database
+        conn = get_db_conn()
+        cur = conn.cursor()
+        cur.execute("DELETE FROM attendance_logs")
+        cur.execute("DELETE FROM daily_remarks")
+        # รีเซ็ตตัวนับ ID ให้กลับไปเริ่มที่ 1 ใหม่
+        cur.execute("DELETE FROM sqlite_sequence WHERE name='attendance_logs'")
+        conn.commit()
+        conn.close()
+
+        # 2. ลบรูปภาพสแกนทั้งหมดในโฟลเดอร์ attendance_images
+        folder = "attendance_images"
+        if os.path.exists(folder):
+            for filename in os.listdir(folder):
+                file_path = os.path.join(folder, filename)
+                try:
+                    if os.path.isfile(file_path):
+                        os.unlink(file_path)
+                except Exception as e:
+                    pass
+
+        return {"status": "success", "message": "ล้างประวัติและรูปสแกนทั้งหมดเรียบร้อยแล้ว"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
 # เพิ่ม Route สำหรับเปิดหน้า Monitor
 @app.get("/monitor")
 async def view_monitor():
@@ -645,6 +674,8 @@ async def health_check():
 async def view_webscan():
     """เปิดหน้าระบบสแกนใบหน้าผ่าน Web Browser"""
     return FileResponse("webscan.html")
+
+
 
 
 if __name__ == "__main__":
