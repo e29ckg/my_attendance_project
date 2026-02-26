@@ -33,23 +33,36 @@
 <body>
 
     <div class="container py-4">
-        <div class="d-flex justify-content-between align-items-center mb-4 border-bottom border-secondary pb-3">
-            <h3 class="fw-bold m-0"><i class="bi bi-camera-video"></i> Web Scanner (Kiosk Mode)</h3>
-            <div>
-                <span id="serverStatus" class="badge bg-warning text-dark fs-6">⏳ ตรวจสอบการเชื่อมต่อ...</span>
-                <button class="btn btn-sm btn-outline-info ms-2" onclick="toggleFullScreen()">
+        <div class="d-flex flex-column flex-md-row justify-content-between align-items-center mb-4 border-bottom border-secondary pb-3 gap-3">
+            <h4 class="fw-bold m-0 text-center text-md-start">
+                <i class="bi bi-camera-video"></i> Web Scanner 
+                <small class="text-white-50 fs-6 d-block d-md-inline mt-1 mt-md-0">(Kiosk Mode)</small>
+            </h4>
+            
+            <div class="d-flex flex-wrap justify-content-center align-items-center gap-2">
+                <span id="serverStatus" class="badge bg-warning text-dark py-2 px-3">⏳ ตรวจสอบ...</span>
+                <button class="btn btn-sm btn-outline-info py-1 px-3" onclick="toggleFullScreen()">
                     <i class="bi bi-arrows-fullscreen"></i> เต็มจอ
                 </button>
-                <a href="/admin" class="btn btn-sm btn-outline-light ms-2"><i class="bi bi-gear"></i> จัดการระบบ</a>
+                <a href="/admin" class="btn btn-sm btn-outline-light py-1 px-3">
+                    <i class="bi bi-gear"></i> จัดการระบบ
+                </a>
             </div>
         </div>
 
         <div class="row g-4">
             <div class="col-md-7 text-center">
                 
+                <div class="status-box mb-3 d-block d-md-none">
+                    <div class="clock" id="clockTextMobile">00:00:00</div>
+                    <div class="text-secondary" id="dateTextMobile">วัน เดือน ปี</div>
+                </div>
+
                 <div class="video-container shadow-lg">
                     <video id="videoElement" autoplay playsinline></video>
-                    <div class="face-guide"></div> <div id="flashOverlay"></div> <div class="scan-line" id="scanLine" style="display: none;"></div>
+                    <div class="face-guide"></div>
+                    <div id="flashOverlay"></div>
+                    <div class="scan-line" id="scanLine" style="display: none;"></div>
                 </div>
                 
                 <div class="status-box mt-3">
@@ -73,7 +86,8 @@
             </div>
 
             <div class="col-md-5">
-                <div class="status-box mb-4">
+                
+                <div class="status-box mb-4 d-none d-md-block">
                     <div class="clock" id="clockText">00:00:00</div>
                     <div class="text-secondary" id="dateText">วัน เดือน ปี</div>
                 </div>
@@ -117,8 +131,6 @@
 
         // --- ระบบเสียง (Web Audio API) ---
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        
-        // ปลดล็อคเสียงเมื่อมีการคลิกหน้าจอ (นโยบายของเบราว์เซอร์)
         document.body.addEventListener('click', () => { if(audioCtx.state === 'suspended') audioCtx.resume(); }, { once: true });
 
         function playSound(type) {
@@ -129,45 +141,54 @@
             gainNode.connect(audioCtx.destination);
             
             if (type === 'scan') {
-                // เสียงติ๊ดสั้นๆ (กำลังสแกน)
                 osc.type = 'sine';
                 osc.frequency.setValueAtTime(800, audioCtx.currentTime);
                 gainNode.gain.setValueAtTime(0.05, audioCtx.currentTime);
                 osc.start(); osc.stop(audioCtx.currentTime + 0.1);
             } else if (type === 'success') {
-                // เสียงติ๊งต่อง (ผ่าน)
                 osc.type = 'triangle';
-                osc.frequency.setValueAtTime(523.25, audioCtx.currentTime); // โด
-                osc.frequency.setValueAtTime(659.25, audioCtx.currentTime + 0.15); // มี
+                osc.frequency.setValueAtTime(523.25, audioCtx.currentTime); 
+                osc.frequency.setValueAtTime(659.25, audioCtx.currentTime + 0.15); 
                 gainNode.gain.setValueAtTime(0.2, audioCtx.currentTime);
                 gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
                 osc.start(); osc.stop(audioCtx.currentTime + 0.5);
             }
         }
 
-        // --- Auto-Reload กัน Memory Leak (รีเฟรชทุก 1 ชั่วโมง) ---
         setTimeout(() => { window.location.reload(); }, 60 * 60 * 1000);
 
-        // --- 1. นาฬิกา ---
+        // --- 1. นาฬิกา (อัปเดตทั้งคอมและมือถือ) ---
         setInterval(() => {
             const now = new Date();
-            document.getElementById('clockText').innerText = now.toLocaleTimeString('th-TH');
-            document.getElementById('dateText').innerText = now.toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' });
+            const t = now.toLocaleTimeString('th-TH');
+            const d = now.toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' });
+            
+            // จอคอม
+            const clockDesktop = document.getElementById('clockText');
+            const dateDesktop = document.getElementById('dateText');
+            if(clockDesktop) clockDesktop.innerText = t;
+            if(dateDesktop) dateDesktop.innerText = d;
+
+            // จอมือถือ
+            const clockMobile = document.getElementById('clockTextMobile');
+            const dateMobile = document.getElementById('dateTextMobile');
+            if(clockMobile) clockMobile.innerText = t;
+            if(dateMobile) dateMobile.innerText = d;
         }, 1000);
 
         // --- 2. เช็ค Server Health ---
         setInterval(async () => {
             try {
                 await axios.get(`${API_URL}/health`);
-                document.getElementById('serverStatus').className = "badge bg-success fs-6";
+                document.getElementById('serverStatus').className = "badge bg-success py-2 px-3";
                 document.getElementById('serverStatus').innerText = "🟢 Server Online";
             } catch (e) {
-                document.getElementById('serverStatus').className = "badge bg-danger fs-6";
+                document.getElementById('serverStatus').className = "badge bg-danger py-2 px-3";
                 document.getElementById('serverStatus').innerText = "🔴 Server Offline";
             }
         }, 5000);
 
-        // --- 3. ดึงราคา Crypto (ตัววิ่ง) ---
+        // --- 3. ดึงราคา Crypto ---
         async function updateTicker() {
             try {
                 const resBtc = await axios.get('https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT');
@@ -181,23 +202,19 @@
         }
         setInterval(updateTicker, 10000); updateTicker();
 
-        // --- 4. ฟังก์ชันเต็มจอ (Fullscreen) ---
         function toggleFullScreen() {
             if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(err => {});
             else if (document.exitFullscreen) document.exitFullscreen();
         }
 
-        // --- 5. ฟังก์ชันเปิดกล้อง (แบบตรวจสอบ Error ละเอียด) ---
+        // --- 5. ฟังก์ชันเปิดกล้อง ---
         async function startCamera() {
-            // เช็คก่อนว่าเบราว์เซอร์รองรับ หรือเข้าเว็บผ่าน HTTPS/localhost หรือไม่
             if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
                 actionStatus.innerHTML = "<span class='text-danger'>ระบบไม่อนุญาตให้ใช้กล้อง<br><small>(ต้องเข้าเว็บผ่าน <b>https://</b> หรือ <b>localhost</b> เท่านั้น)</small></span>";
                 return;
             }
 
-            const constraints = {
-                video: { facingMode: "user", width: { ideal: 640 } }
-            };
+            const constraints = { video: { facingMode: "user", width: { ideal: 640 } } };
             
             try {
                 const stream = await navigator.mediaDevices.getUserMedia(constraints);
@@ -207,8 +224,6 @@
                 if(!scanIntervalId) scanIntervalId = setInterval(captureAndSend, 3000);
             } catch (err) {
                 console.error(err);
-                
-                // แจ้งเตือน Error ให้ละเอียดขึ้น เพื่อให้ผู้ใช้รู้สาเหตุ
                 if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
                     actionStatus.innerHTML = "<span class='text-danger'>คุณบล็อกการเข้าถึงกล้อง<br><small>(โปรดกดรูป 🔒 บนแถบ URL แล้วเลือก <b>อนุญาตกล้อง</b>)</small></span>";
                 } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
@@ -221,7 +236,6 @@
             }
         }
 
-        // --- 6. ฟังก์ชันพูดทักทาย & เอฟเฟกต์แฟลช ---
         function speakThai(text) {
             const utterance = new SpeechSynthesisUtterance(text);
             utterance.lang = 'th-TH'; utterance.rate = 1.0;
@@ -246,7 +260,6 @@
             }
         }
 
-        // --- 7. จับภาพและส่งไป Server ---
         async function captureAndSend() {
             if (isProcessing) return;
             const context = canvas.getContext('2d');
@@ -258,7 +271,7 @@
 
             isProcessing = true;
             document.getElementById('scanLine').style.display = 'block';
-            // playSound('scan'); // เสียงติ๊ดสั้นๆตอนยิง API
+            // playSound('scan');
 
             canvas.toBlob(async (blob) => {
                 const fd = new FormData();
@@ -275,14 +288,13 @@
             }, 'image/jpeg', 0.8);
         }
 
-        // --- 8. จัดการผลลัพธ์ ---
         function handleScanResult(data) {
             if (data.status === 'OK') {
                 const name = data.name;
                 if (name !== lastGreetedName || (Date.now() - lastScanTime > 5000)) {
-                    triggerFlash();       // หน้าจอวาบสีเขียว
-                    playSound('success'); // เสียงติ๊งต่อง
-                    speakThai(`สวัสดี ${name}`); // เสียงพูด
+                    triggerFlash();       
+                    playSound('success'); 
+                    speakThai(`สวัสดี ${name}`); 
                     lastGreetedName = name;
                     
                     const tbody = document.getElementById('logTable');
@@ -297,7 +309,6 @@
             }
         }
 
-        // --- 9. ส่งแบบ Manual (ฉุกเฉิน) ---
         async function sendManual() {
             const empId = document.getElementById('manualId').value.trim();
             if(!empId) return alert("กรุณากรอกรหัส");
