@@ -27,16 +27,21 @@
 </head>
 <body>
 
-    <nav class="navbar navbar-expand-lg navbar-light bg-white sticky-top mb-4">
+    <nav class="navbar navbar-expand-lg navbar-light bg-white sticky-top mb-4 shadow-sm">
         <div class="container">
             <a class="navbar-brand fw-bold text-primary" href="/"><i class="bi bi-person-bounding-box"></i> HR Face Scan</a>
-            <div class="collapse navbar-collapse">
+            
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+
+            <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav ms-auto">
-                    <li class="nav-item"><a class="nav-link" href="/">🏠 หน้าหลัก</a></li>
+                    <li class="nav-item"><a class="nav-link" href="/">🏠 หน้าหลัก (สแกน)</a></li>
                     <li class="nav-item"><a class="nav-link" href="/admin">👥 จัดการพนักงาน</a></li>
-                    <li class="nav-item"><a class="nav-link active fw-bold" href="/report">📊 รายงานรายวัน</a></li>
-                    <li class="nav-item"><a class="nav-link" href="/print">🖨️ พิมพ์แบบฟอร์ม</a></li>                    
-                    <li class="nav-item"><a class="nav-link active fw-bold text-danger" href="/monitor">🔧 Monitor</a></li>
+                    <li class="nav-item"><a class="nav-link" href="/report">📊 รายงาน</a></li>
+                    <li class="nav-item"><a class="nav-link" href="/print">🖨️ พิมพ์แบบฟอร์ม</a></li>
+                    <li class="nav-item"><a class="nav-link fw-bold text-danger" href="/monitor">🔧 Monitor</a></li>
                 </ul>
             </div>
         </div>

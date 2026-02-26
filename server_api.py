@@ -17,6 +17,8 @@ from deepface import DeepFace
 import secrets
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi import Request
+from fastapi.responses import HTMLResponse, JSONResponse
 from typing import Optional
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
@@ -68,6 +70,32 @@ def verify_admin(credentials: HTTPBasicCredentials = Depends(security)):
             headers={"WWW-Authenticate": "Basic"},
         )
     return credentials.username
+
+# --- จัดการกรณี Login หน้า Admin ไม่ผ่าน (กด Cancel) ---
+@app.exception_handler(HTTPException)
+async def auth_exception_handler(request: Request, exc: HTTPException):
+    # ถ้าเป็น Error 401 (ไม่ได้ล็อกอิน หรือกด Cancel)
+    if exc.status_code == 401:
+        # ส่ง Header ไปบอกเบราว์เซอร์ให้เปิดหน้าต่างกรอกรหัส
+        headers = exc.headers or {"WWW-Authenticate": "Basic"}
+        
+        # ถ้าผู้ใช้กดยกเลิก เบราว์เซอร์จะอ่านโค้ดบรรทัดนี้ และเด้งกลับไปที่หน้า / (Webscan) ทันที
+        html_redirect = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta http-equiv="refresh" content="0; url=/" />
+            <script>window.location.replace("/");</script>
+        </head>
+        <body style="background:#2c3e50; color:white; text-align:center; padding:50px; font-family:sans-serif;">
+            <h3>กำลังกลับสู่หน้าหลัก...</h3>
+        </body>
+        </html>
+        """
+        return HTMLResponse(content=html_redirect, status_code=401, headers=headers)
+    
+    # ถ้าเป็น Error อื่นๆ ให้คืนค่าเป็น JSON ปกติ
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
 
 # --- DATABASE & INIT ---
 def get_db_conn():
