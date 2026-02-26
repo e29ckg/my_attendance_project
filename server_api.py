@@ -249,7 +249,6 @@ def send_telegram_thread(name, time_str, img_path, client_ip="Unknown"):
         print(f"Telegram Error: {e}")
 
 # เพิ่ม parameter client_ip
-# เพิ่ม parameter client_ip
 def save_log(emp_id, name, frame, type="SCAN", client_ip="Unknown"):
     now = datetime.now()
     conn = get_db_conn()
