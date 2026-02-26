@@ -242,9 +242,15 @@ async def manual_scan(employee_id: str = Form(...), file: UploadFile = File(...)
         nparr = np.frombuffer(contents, np.uint8)
         frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         
+        # --- [เพิ่มเช็ครูปเสียตรงนี้] ---
+        if frame is None:
+            return {"status": "ERROR", "message": "ไฟล์รูปภาพไม่ถูกต้องหรืออ่านไม่ได้"}
+        # ---------------------------
+        
         save_log(employee_id, emp['name'], frame, type="MANUAL")
-        return {"status": "OK", "name": emp['name']}
-    except Exception as e: return {"status": "ERROR", "message": str(e)}
+        return {"status": "OK", "name": emp['name'], "time": datetime.now().strftime("%H:%M:%S")}
+    except Exception as e: 
+        return {"status": "ERROR", "message": str(e)}
 
 @app.get("/health")
 async def health_check(): return {"status": "online"}
@@ -581,6 +587,11 @@ async def view_monitor():
 async def health_check():
     """API สำหรับเช็คว่า Server ยังรอดอยู่ไหม"""
     return {"status": "online"}
+
+@app.get("/webscan")
+async def view_webscan():
+    """เปิดหน้าระบบสแกนใบหน้าผ่าน Web Browser"""
+    return FileResponse("webscan.html")
 
 
 if __name__ == "__main__":
