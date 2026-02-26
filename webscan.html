@@ -28,7 +28,7 @@
             <h3 class="fw-bold m-0"><i class="bi bi-camera-video"></i> Web Scanner (Kiosk Mode)</h3>
             <div>
                 <span id="serverStatus" class="badge bg-warning text-dark fs-6">⏳ ตรวจสอบการเชื่อมต่อ...</span>
-                <a href="/" class="btn btn-sm btn-outline-light ms-2">กลับหน้าหลัก</a>
+                <a href="/admin" class="btn btn-sm btn-outline-light ms-2"><i class="bi bi-gear"></i> จัดการระบบ (Admin)</a>
             </div>
         </div>
 
@@ -184,7 +184,7 @@
                     
                     // เพิ่มลงตาราง
                     const tbody = document.getElementById('logTable');
-                    const timeStr = new Date().toLocaleTimeString('th-TH');
+                    const timeStr = data.time || new Date().toLocaleTimeString('th-TH');
                     tbody.insertAdjacentHTML('afterbegin', `<tr><td class="text-success fw-bold">${name}</td><td>${timeStr}</td></tr>`);
                     if(tbody.children.length > 5) tbody.lastElementChild.remove(); // โชว์แค่ 5 คนล่าสุด
                 }
@@ -235,8 +235,8 @@
                         document.getElementById('manualId').value = "";
                         // เพิ่มลงตาราง
                         const tbody = document.getElementById('logTable');
-                        const timeStr = new Date().toLocaleTimeString('th-TH');
-                        tbody.insertAdjacentHTML('afterbegin', `<tr><td class="text-success fw-bold">${res.data.name}</td><td>${res.data.time}</td></tr>`);
+                        const timeStr = res.data.time || new Date().toLocaleTimeString('th-TH');
+                        tbody.insertAdjacentHTML('afterbegin', `<tr><td class="text-success fw-bold">${res.data.name}</td><td>${timeStr}</td></tr>`);
                         if(tbody.children.length > 5) tbody.lastElementChild.remove(); // โชว์แค่ 5 คนล่าสุด
                     } else {
                         alert(res.data.message);

@@ -9,15 +9,17 @@ import requests
 import json
 import psutil
 import time
-from typing import Optional
-from datetime import datetime, timedelta
-from dotenv import load_dotenv
-
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from deepface import DeepFace
+import secrets
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from typing import Optional
+from datetime import datetime, timedelta
+from dotenv import load_dotenv
 
 # --- CONFIG LOADING ---
 load_dotenv()
@@ -50,6 +52,22 @@ app.mount("/attendance_images", StaticFiles(directory="attendance_images"), name
 known_embeddings = []
 known_ids = []
 known_names = []
+
+# --- ADMIN AUTHENTICATION ---
+ADMIN_USER = os.getenv("ADMIN_USER", "admin")
+ADMIN_PASS = os.getenv("ADMIN_PASS", "123456")
+security = HTTPBasic()
+
+def verify_admin(credentials: HTTPBasicCredentials = Depends(security)):
+    correct_username = secrets.compare_digest(credentials.username, ADMIN_USER)
+    correct_password = secrets.compare_digest(credentials.password, ADMIN_PASS)
+    if not (correct_username and correct_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    return credentials.username
 
 # --- DATABASE & INIT ---
 def get_db_conn():
@@ -148,19 +166,26 @@ async def startup_event():
 
 # --- PAGE ROUTES ---
 @app.get("/")
-async def index(): return FileResponse("index.html")
+async def index(): 
+    """เปลี่ยนหน้าหลักเป็นระบบสแกน Web Scanner"""
+    return FileResponse("webscan.html")
 
+# หน้าต่างๆ ที่ต้องใช้รหัสผ่าน (เพิ่ม Depends)
 @app.get("/admin")
-async def view_admin(): return FileResponse("admin.html")
+async def view_admin(username: str = Depends(verify_admin)): 
+    return FileResponse("admin.html")
 
 @app.get("/report")
-async def view_report(): return FileResponse("report_daily.html")
+async def view_report(username: str = Depends(verify_admin)): 
+    return FileResponse("report_daily.html")
 
 @app.get("/monitor")
-async def view_monitor(): return FileResponse("monitor.html")
+async def view_monitor(username: str = Depends(verify_admin)): 
+    return FileResponse("monitor.html")
 
 @app.get("/print")
-async def view_print(): return FileResponse("report_print.html")
+async def view_print(username: str = Depends(verify_admin)): 
+    return FileResponse("report_print.html")
 
 # --- UTILS ---
 def send_telegram_thread(name, time_str, img_path):
