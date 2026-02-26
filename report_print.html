@@ -4,10 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>พิมพ์บัญชีลงเวลา - Time Attendance</title>
+    
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
     <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;600&display=swap" rel="stylesheet">
+    
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     
     <style>
         body { font-family: 'Sarabun', sans-serif; background-color: #f4f6f9; color: #000; }
@@ -42,7 +45,7 @@
 </head>
 <body>
 
-    <nav class="navbar navbar-expand-lg navbar-light bg-white sticky-top mb-4 shadow-sm">
+    <nav class="navbar navbar-expand-lg navbar-light bg-white sticky-top mb-4 shadow-sm no-print">
         <div class="container">
             <a class="navbar-brand fw-bold text-primary" href="/"><i class="bi bi-person-bounding-box"></i> HR Face Scan</a>
             
@@ -55,8 +58,8 @@
                     <li class="nav-item"><a class="nav-link" href="/">🏠 หน้าหลัก (สแกน)</a></li>
                     <li class="nav-item"><a class="nav-link" href="/admin">👥 จัดการพนักงาน</a></li>
                     <li class="nav-item"><a class="nav-link" href="/report">📊 รายงาน</a></li>
-                    <li class="nav-item"><a class="nav-link" href="/print">🖨️ พิมพ์แบบฟอร์ม</a></li>
-                    <li class="nav-item"><a class="nav-link fw-bold text-danger" href="/monitor">🔧 Monitor</a></li>
+                    <li class="nav-item"><a class="nav-link fw-bold text-success" href="/print">🖨️ พิมพ์แบบฟอร์ม</a></li>
+                    <li class="nav-item"><a class="nav-link text-danger" href="/monitor">🔧 Monitor</a></li>
                 </ul>
             </div>
         </div>
