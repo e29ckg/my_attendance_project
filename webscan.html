@@ -10,15 +10,24 @@
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
 
     <style>
-        body { font-family: 'Sarabun', sans-serif; background-color: #2c3e50; color: white; }
+        body { font-family: 'Sarabun', sans-serif; background-color: #2c3e50; color: white; padding-bottom: 50px; }
         .video-container { position: relative; width: 100%; max-width: 640px; margin: auto; border: 4px solid #34495e; border-radius: 15px; overflow: hidden; background: #000; }
-        #videoElement { width: 100%; height: auto; transform: scaleX(-1); /* กลับด้านกระจก */ }
+        #videoElement { width: 100%; height: auto; transform: scaleX(-1); object-fit: cover; }
         .status-box { background: rgba(0,0,0,0.6); padding: 15px; border-radius: 10px; text-align: center; }
-        .scan-line { position: absolute; width: 100%; height: 2px; background: rgba(0, 255, 0, 0.5); box-shadow: 0 0 10px rgba(0, 255, 0, 1); animation: scan 2s infinite linear; top: 0; }
+        
+        /* กรอบเล็งหน้า และ เอฟเฟกต์แฟลช */
+        .face-guide { position: absolute; top: 15%; left: 20%; right: 20%; bottom: 15%; border: 2px dashed rgba(255,255,255,0.4); border-radius: 20px; pointer-events: none; }
+        #flashOverlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(40, 167, 69, 0.6); opacity: 0; pointer-events: none; transition: opacity 0.2s; z-index: 10; }
+        
+        .scan-line { position: absolute; width: 100%; height: 3px; background: rgba(0, 255, 255, 0.7); box-shadow: 0 0 15px rgba(0, 255, 255, 1); animation: scan 2s infinite linear; top: 0; z-index: 5; }
         @keyframes scan { 0% { top: 0; } 50% { top: 100%; } 100% { top: 0; } }
+        
         .clock { font-size: 3rem; font-weight: bold; color: #0dcaf0; }
         .table { color: white; }
         .table-dark { background-color: transparent; }
+        
+        /* แถบตัววิ่ง */
+        .ticker-wrap { position: fixed; bottom: 0; left: 0; width: 100%; background-color: #1a252f; border-top: 2px solid #f39c12; color: #f1c40f; padding: 8px 0; font-size: 1.2rem; z-index: 1000; }
     </style>
 </head>
 <body>
@@ -28,15 +37,19 @@
             <h3 class="fw-bold m-0"><i class="bi bi-camera-video"></i> Web Scanner (Kiosk Mode)</h3>
             <div>
                 <span id="serverStatus" class="badge bg-warning text-dark fs-6">⏳ ตรวจสอบการเชื่อมต่อ...</span>
-                <a href="/admin" class="btn btn-sm btn-outline-light ms-2"><i class="bi bi-gear"></i> จัดการระบบ (Admin)</a>
+                <button class="btn btn-sm btn-outline-info ms-2" onclick="toggleFullScreen()">
+                    <i class="bi bi-arrows-fullscreen"></i> เต็มจอ
+                </button>
+                <a href="/admin" class="btn btn-sm btn-outline-light ms-2"><i class="bi bi-gear"></i> จัดการระบบ</a>
             </div>
         </div>
 
         <div class="row g-4">
             <div class="col-md-7 text-center">
+                
                 <div class="video-container shadow-lg">
                     <video id="videoElement" autoplay playsinline></video>
-                    <div class="scan-line" id="scanLine" style="display: none;"></div>
+                    <div class="face-guide"></div> <div id="flashOverlay"></div> <div class="scan-line" id="scanLine" style="display: none;"></div>
                 </div>
                 
                 <div class="status-box mt-3">
@@ -50,7 +63,7 @@
 
                     <div id="manualBox" class="mt-3 p-3 bg-secondary bg-opacity-50 rounded-3 shadow" style="display: none; max-width: 350px; margin: 0 auto;">
                         <label class="form-label text-light fw-bold fs-5">ระบุรหัสพนักงาน</label>
-                        <div class="input-group mb-2">
+                        <div class="d-flex gap-2 mb-2">
                             <input type="text" id="manualId" class="form-control form-control-lg text-center fw-bold" placeholder="รหัส...">
                             <button class="btn btn-success px-4" onclick="sendManual()">บันทึก</button>
                         </div>
@@ -83,10 +96,16 @@
         </div>
     </div>
 
+    <div class="ticker-wrap shadow-lg">
+        <marquee behavior="scroll" direction="left" id="cryptoTicker" scrollamount="6">
+            ⏳ กำลังเชื่อมต่อข้อมูลตลาด...
+        </marquee>
+    </div>
+
     <canvas id="canvas" style="display: none;"></canvas>
 
     <script>
-        const API_URL = ""; // ถ้าเปิดจากเว็บตัวเอง ไม่ต้องใส่ IP
+        const API_URL = ""; 
         const video = document.getElementById('videoElement');
         const canvas = document.getElementById('canvas');
         const actionStatus = document.getElementById('actionStatus');
@@ -94,15 +113,49 @@
         let isProcessing = false;
         let lastGreetedName = null;
         let lastScanTime = 0;
+        let scanIntervalId = null;
 
-        // 1. นาฬิกา
+        // --- ระบบเสียง (Web Audio API) ---
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        
+        // ปลดล็อคเสียงเมื่อมีการคลิกหน้าจอ (นโยบายของเบราว์เซอร์)
+        document.body.addEventListener('click', () => { if(audioCtx.state === 'suspended') audioCtx.resume(); }, { once: true });
+
+        function playSound(type) {
+            if(audioCtx.state === 'suspended') audioCtx.resume();
+            const osc = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+            osc.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            
+            if (type === 'scan') {
+                // เสียงติ๊ดสั้นๆ (กำลังสแกน)
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(800, audioCtx.currentTime);
+                gainNode.gain.setValueAtTime(0.05, audioCtx.currentTime);
+                osc.start(); osc.stop(audioCtx.currentTime + 0.1);
+            } else if (type === 'success') {
+                // เสียงติ๊งต่อง (ผ่าน)
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(523.25, audioCtx.currentTime); // โด
+                osc.frequency.setValueAtTime(659.25, audioCtx.currentTime + 0.15); // มี
+                gainNode.gain.setValueAtTime(0.2, audioCtx.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
+                osc.start(); osc.stop(audioCtx.currentTime + 0.5);
+            }
+        }
+
+        // --- Auto-Reload กัน Memory Leak (รีเฟรชทุก 1 ชั่วโมง) ---
+        setTimeout(() => { window.location.reload(); }, 60 * 60 * 1000);
+
+        // --- 1. นาฬิกา ---
         setInterval(() => {
             const now = new Date();
             document.getElementById('clockText').innerText = now.toLocaleTimeString('th-TH');
             document.getElementById('dateText').innerText = now.toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' });
         }, 1000);
 
-        // 2. เช็ค Server Health
+        // --- 2. เช็ค Server Health ---
         setInterval(async () => {
             try {
                 await axios.get(`${API_URL}/health`);
@@ -114,48 +167,99 @@
             }
         }, 5000);
 
-        // 3. เปิดกล้อง
-        async function startCamera() {
+        // --- 3. ดึงราคา Crypto (ตัววิ่ง) ---
+        async function updateTicker() {
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: 640 } });
+                const resBtc = await axios.get('https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT');
+                const resEth = await axios.get('https://api.binance.com/api/v3/ticker/price?symbol=ETHUSDT');
+                const btc = parseFloat(resBtc.data.price).toLocaleString('en-US', {minimumFractionDigits: 2});
+                const eth = parseFloat(resEth.data.price).toLocaleString('en-US', {minimumFractionDigits: 2});
+                
+                document.getElementById('cryptoTicker').innerHTML = 
+                    `📈 <b>Crypto Market (Real-time):</b> &nbsp;&nbsp;&nbsp;&nbsp; <span style="color:#00ff00;">₿ <b>BTC:</b> $${btc}</span> &nbsp;&nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp;&nbsp; <span style="color:#00ffff;">💎 <b>ETH:</b> $${eth}</span> &nbsp;&nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp;&nbsp; ⏰ อัปเดตล่าสุด: ${new Date().toLocaleTimeString('th-TH')}`;
+            } catch (e) { console.log("Ticker Error"); }
+        }
+        setInterval(updateTicker, 10000); updateTicker();
+
+        // --- 4. ฟังก์ชันเต็มจอ (Fullscreen) ---
+        function toggleFullScreen() {
+            if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(err => {});
+            else if (document.exitFullscreen) document.exitFullscreen();
+        }
+
+        // --- 5. ฟังก์ชันเปิดกล้อง (แบบตรวจสอบ Error ละเอียด) ---
+        async function startCamera() {
+            // เช็คก่อนว่าเบราว์เซอร์รองรับ หรือเข้าเว็บผ่าน HTTPS/localhost หรือไม่
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                actionStatus.innerHTML = "<span class='text-danger'>ระบบไม่อนุญาตให้ใช้กล้อง<br><small>(ต้องเข้าเว็บผ่าน <b>https://</b> หรือ <b>localhost</b> เท่านั้น)</small></span>";
+                return;
+            }
+
+            const constraints = {
+                video: { facingMode: "user", width: { ideal: 640 } }
+            };
+            
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
                 video.srcObject = stream;
                 actionStatus.innerText = "กรุณามองกล้อง...";
                 
-                // เริ่มลูปสแกน (ทุก 3 วินาที)
-                setInterval(captureAndSend, 3000);
+                if(!scanIntervalId) scanIntervalId = setInterval(captureAndSend, 3000);
             } catch (err) {
                 console.error(err);
-                actionStatus.innerHTML = "<span class='text-danger'>ไม่สามารถเปิดกล้องได้<br><small>(โปรดอนุญาตกล้อง หรือใช้งานผ่าน HTTPS)</small></span>";
+                
+                // แจ้งเตือน Error ให้ละเอียดขึ้น เพื่อให้ผู้ใช้รู้สาเหตุ
+                if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+                    actionStatus.innerHTML = "<span class='text-danger'>คุณบล็อกการเข้าถึงกล้อง<br><small>(โปรดกดรูป 🔒 บนแถบ URL แล้วเลือก <b>อนุญาตกล้อง</b>)</small></span>";
+                } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+                    actionStatus.innerHTML = "<span class='text-danger'>ไม่พบกล้องในอุปกรณ์นี้<br><small>(โปรดตรวจสอบการเชื่อมต่อกล้อง)</small></span>";
+                } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+                    actionStatus.innerHTML = "<span class='text-danger'>กล้องถูกใช้งานโดยโปรแกรมอื่นอยู่<br><small>(โปรดปิดแอปอื่นที่กำลังใช้กล้องแล้วรีเฟรชหน้าเว็บ)</small></span>";
+                } else {
+                    actionStatus.innerHTML = `<span class='text-danger'>ไม่สามารถเปิดกล้องได้: ${err.name}<br><small>(โปรดใช้งานผ่าน HTTPS)</small></span>`;
+                }
             }
         }
 
-        // 4. ฟังก์ชันพูดทักทาย (Web Speech API)
+        // --- 6. ฟังก์ชันพูดทักทาย & เอฟเฟกต์แฟลช ---
         function speakThai(text) {
             const utterance = new SpeechSynthesisUtterance(text);
-            utterance.lang = 'th-TH';
-            utterance.rate = 1.0;
+            utterance.lang = 'th-TH'; utterance.rate = 1.0;
             window.speechSynthesis.speak(utterance);
         }
 
-        // 5. จับภาพและส่งไป Server
+        function triggerFlash() {
+            const flash = document.getElementById('flashOverlay');
+            flash.style.opacity = '1';
+            setTimeout(() => flash.style.opacity = '0', 300);
+        }
+
+        function toggleManualBox() {
+            const box = document.getElementById('manualBox');
+            const btn = document.getElementById('btnShowManual');
+            if (box.style.display === 'none') {
+                box.style.display = 'block'; btn.style.display = 'none';
+                document.getElementById('manualId').focus();
+            } else {
+                box.style.display = 'none'; btn.style.display = 'inline-block';
+                document.getElementById('manualId').value = '';
+            }
+        }
+
+        // --- 7. จับภาพและส่งไป Server ---
         async function captureAndSend() {
             if (isProcessing) return;
-            
-            // วาดภาพจากวีดีโอลง Canvas
             const context = canvas.getContext('2d');
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            if (canvas.width === 0) return; // กล้องยังไม่พร้อม
+            canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+            if (canvas.width === 0) return;
 
-            // พลิกภาพกลับให้ถูกต้องก่อนส่ง (เพราะเรา CSS mirror ไว้)
-            context.translate(canvas.width, 0);
-            context.scale(-1, 1);
+            context.translate(canvas.width, 0); context.scale(-1, 1);
             context.drawImage(video, 0, 0, canvas.width, canvas.height);
 
             isProcessing = true;
             document.getElementById('scanLine').style.display = 'block';
+            // playSound('scan'); // เสียงติ๊ดสั้นๆตอนยิง API
 
-            // แปลงเป็นไฟล์ภาพ (Blob)
             canvas.toBlob(async (blob) => {
                 const fd = new FormData();
                 fd.append('file', blob, 'webcam.jpg');
@@ -163,30 +267,28 @@
                 try {
                     const res = await axios.post(`${API_URL}/scan`, fd);
                     handleScanResult(res.data);
-                } catch (e) {
-                    console.error("Scan Error:", e);
-                } finally {
+                } catch (e) { console.error("Scan Error:", e); } 
+                finally {
                     isProcessing = false;
                     document.getElementById('scanLine').style.display = 'none';
                 }
             }, 'image/jpeg', 0.8);
         }
 
-        // 6. จัดการผลลัพธ์
+        // --- 8. จัดการผลลัพธ์ ---
         function handleScanResult(data) {
             if (data.status === 'OK') {
                 const name = data.name;
-                
-                // ถ้าสแกนคนเดิมซ้ำใน 5 วินาที จะไม่พูดซ้ำ
                 if (name !== lastGreetedName || (Date.now() - lastScanTime > 5000)) {
-                    speakThai(`สวัสดีค่ะ ${name}`);
+                    triggerFlash();       // หน้าจอวาบสีเขียว
+                    playSound('success'); // เสียงติ๊งต่อง
+                    speakThai(`สวัสดี ${name}`); // เสียงพูด
                     lastGreetedName = name;
                     
-                    // เพิ่มลงตาราง
                     const tbody = document.getElementById('logTable');
                     const timeStr = data.time || new Date().toLocaleTimeString('th-TH');
                     tbody.insertAdjacentHTML('afterbegin', `<tr><td class="text-success fw-bold">${name}</td><td>${timeStr}</td></tr>`);
-                    if(tbody.children.length > 5) tbody.lastElementChild.remove(); // โชว์แค่ 5 คนล่าสุด
+                    if(tbody.children.length > 5) tbody.lastElementChild.remove();
                 }
                 
                 lastScanTime = Date.now();
@@ -195,22 +297,7 @@
             }
         }
 
-        // ฟังก์ชันเปิด/ปิด กล่องกรอกรหัส
-        function toggleManualBox() {
-            const box = document.getElementById('manualBox');
-            const btn = document.getElementById('btnShowManual');
-            if (box.style.display === 'none') {
-                box.style.display = 'block';
-                btn.style.display = 'none'; // ซ่อนปุ่มเหลือง
-                document.getElementById('manualId').focus(); // ให้เคอร์เซอร์ไปกระพริบรอเลย
-            } else {
-                box.style.display = 'none';
-                btn.style.display = 'inline-block'; // แสดงปุ่มเหลืองกลับมา
-                document.getElementById('manualId').value = '';
-            }
-        }
-
-        // 7. ส่งแบบ Manual (ฉุกเฉิน)
+        // --- 9. ส่งแบบ Manual (ฉุกเฉิน) ---
         async function sendManual() {
             const empId = document.getElementById('manualId').value.trim();
             if(!empId) return alert("กรุณากรอกรหัส");
@@ -229,15 +316,17 @@
                     actionStatus.innerText = "กำลังบันทึก...";
                     const res = await axios.post(`${API_URL}/manual_scan`, fd);
                     if(res.data.status === 'OK') {
-                        speakThai(`บันทึกข้อมูล คุณ ${res.data.name} เรียบร้อย`);
+                        triggerFlash();
+                        playSound('success');
+                        speakThai(`บันทึกข้อมูล ${res.data.name} เรียบร้อย`);
                         actionStatus.innerHTML = `<span class="text-success fw-bold">✅ บันทึก: ${res.data.name}</span>`;
-                        toggleManualBox(); // ปิดกล่องหลังบันทึก
-                        document.getElementById('manualId').value = "";
-                        // เพิ่มลงตาราง
+                        
                         const tbody = document.getElementById('logTable');
                         const timeStr = res.data.time || new Date().toLocaleTimeString('th-TH');
                         tbody.insertAdjacentHTML('afterbegin', `<tr><td class="text-success fw-bold">${res.data.name}</td><td>${timeStr}</td></tr>`);
-                        if(tbody.children.length > 5) tbody.lastElementChild.remove(); // โชว์แค่ 5 คนล่าสุด
+                        if(tbody.children.length > 5) tbody.lastElementChild.remove();
+                        
+                        toggleManualBox();
                     } else {
                         alert(res.data.message);
                         actionStatus.innerText = "กรุณามองกล้อง...";
@@ -246,7 +335,6 @@
             }, 'image/jpeg', 0.8);
         }
 
-        // สั่งเปิดกล้องตอนโหลดหน้าเว็บเสร็จ
         window.onload = startCamera;
     </script>
 </body>

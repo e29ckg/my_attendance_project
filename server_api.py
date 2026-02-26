@@ -30,7 +30,7 @@ THRESHOLD = float(os.getenv("THRESHOLD", 0.3))
 ENABLE_TELEGRAM = os.getenv("ENABLE_TELEGRAM", "False").lower() == "true"
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
-KEEP_IMAGE_DAYS = int(os.getenv("KEEP_IMAGE_DAYS", 15))
+KEEP_IMAGE_DAYS = int(os.getenv("KEEP_IMAGE_DAYS", 60))
 SERVER_PORT = int(os.getenv("PORT", 9876))
 SERVER_HOST = os.getenv("HOST", "0.0.0.0")
 
@@ -139,6 +139,11 @@ def init_system():
             log_type TEXT DEFAULT 'SCAN', 
             status TEXT DEFAULT '-'
         )""")
+
+        try:
+            cur.execute("ALTER TABLE attendance_logs ADD COLUMN client_ip TEXT")
+        except:
+            pass
         
         # 3. ตาราง Remarks
         cur.execute("""CREATE TABLE IF NOT EXISTS daily_remarks (
@@ -215,23 +220,41 @@ async def view_monitor(username: str = Depends(verify_admin)):
 async def view_print(username: str = Depends(verify_admin)): 
     return FileResponse("report_print.html")
 
+@app.get("/health")
+async def health_check():
+    """API สำหรับเช็คว่า Server ยังรอดอยู่ไหม"""
+    return {"status": "online"}
+
+@app.get("/webscan")
+async def view_webscan():
+    """เปิดหน้าระบบสแกนใบหน้าผ่าน Web Browser"""
+    return FileResponse("webscan.html")
+
+
+
 # --- UTILS ---
-def send_telegram_thread(name, time_str, img_path):
+# 1. เพิ่ม client_ip="Unknown" ตรงวงเล็บนี้ครับ 👇
+def send_telegram_thread(name, time_str, img_path, client_ip="Unknown"):
     if not ENABLE_TELEGRAM: return
     try:
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
-        caption = f"✅ <b>ลงเวลาสำเร็จ</b>\n👤 {name}\n⏰ {time_str}"
+        
+        # 2. ตอนนี้ระบบจะรู้จักตัวแปร client_ip แล้วครับ
+        caption = f"✅ <b>ลงเวลาสำเร็จ</b>\n👤 <b>ชื่อ:</b> {name}\n⏰ <b>เวลา:</b> {time_str}\n🌐 <b>IP เครื่อง:</b> {client_ip}"
+        
         with open(img_path, 'rb') as f:
             requests.post(url, files={'photo': f}, data={'chat_id': TELEGRAM_CHAT_ID, 'caption': caption, 'parse_mode': 'HTML'})
-    except Exception as e: print(f"Telegram Error: {e}")
+            
+    except Exception as e: 
+        print(f"Telegram Error: {e}")
 
-def save_log(emp_id, name, frame, type="SCAN"):
+# เพิ่ม parameter client_ip
+def save_log(emp_id, name, frame, type="SCAN", client_ip="Unknown"):
     now = datetime.now()
     conn = get_db_conn()
     if not conn: return
     try:
         cur = conn.cursor()
-        # Cooldown 1 min
         cur.execute("SELECT check_time FROM attendance_logs WHERE employee_id=? ORDER BY id DESC LIMIT 1", (emp_id,))
         last = cur.fetchone()
         if last:
@@ -243,21 +266,28 @@ def save_log(emp_id, name, frame, type="SCAN"):
         cv2.imwrite(img_path, frame)
         
         status_txt = "บันทึกแล้ว" if type == "SCAN" else "บันทึกมือ"
-        cur.execute("INSERT INTO attendance_logs (employee_id, employee_name, check_time, evidence_image, log_type, status) VALUES (?,?,?,?,?,?)",
-                    (emp_id, name, now, img_path, type, status_txt))
+        
+        # อัปเดตคำสั่ง Insert ให้มี client_ip
+        cur.execute("INSERT INTO attendance_logs (employee_id, employee_name, check_time, evidence_image, log_type, status, client_ip) VALUES (?,?,?,?,?,?,?)",
+                    (emp_id, name, now, img_path, type, status_txt, client_ip))
         conn.commit()
-        print(f"✅ Logged: {name}")
 
         if ENABLE_TELEGRAM:
-            threading.Thread(target=send_telegram_thread, args=(f"{name} ({type})", now.strftime("%H:%M:%S"), img_path)).start()
-    except Exception as e: print(f"DB Error: {e}")
-    finally: conn.close()
+            # ส่งค่า client_ip เข้า Thread ของ Telegram ด้วย
+            threading.Thread(target=send_telegram_thread, args=(f"{name} ({type})", now.strftime("%H:%M:%S"), img_path, client_ip)).start()
+    except Exception as e: 
+        print(f"DB Error: {e}")
+    finally: 
+        conn.close()
 
 # --- CORE API ---
-
+# เพิ่ม request: Request เข้าไปในวงเล็บตรงนี้ครับ 👇
 @app.post("/scan")
-async def scan_face(file: UploadFile = File(...)):
+async def scan_face(request: Request, file: UploadFile = File(...)):
     try:
+        # ตอนนี้ระบบจะรู้จัก request แล้วครับ จะสามารถดึง IP ได้
+        client_ip = request.headers.get('X-Forwarded-For', request.client.host)
+        
         contents = await file.read()
         nparr = np.frombuffer(contents, np.uint8)
         frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
@@ -274,15 +304,22 @@ async def scan_face(file: UploadFile = File(...)):
                 if dist < min_dist: min_dist, idx = dist, i
             
             if min_dist < THRESHOLD and idx != -1:
-                save_log(known_ids[idx], known_names[idx], frame)
-                found_name, status = known_names[idx], "OK"
+                # ส่ง client_ip ไปให้ save_log บันทึกต่อ
+                save_log(known_ids[idx], known_names[idx], frame, client_ip=client_ip)
+                found_name = known_names[idx]
+                status = "OK"
                 
         return {"status": status, "name": found_name, "time": datetime.now().strftime("%H:%M:%S")}
-    except: return {"status": "ERROR", "name": "System Error"}
+    except: 
+        return {"status": "ERROR", "name": "System Error"}
 
+# 1. เพิ่ม request: Request เข้าไปในวงเล็บ 👇
 @app.post("/manual_scan")
-async def manual_scan(employee_id: str = Form(...), file: UploadFile = File(...)):
+async def manual_scan(request: Request, employee_id: str = Form(...), file: UploadFile = File(...)):
     try:
+        # 2. ดึง IP ของเครื่องที่กำลังใช้งาน
+        client_ip = request.headers.get('X-Forwarded-For', request.client.host)
+        
         conn = get_db_conn()
         cur = conn.cursor()
         cur.execute("SELECT name FROM employees WHERE employee_id = ?", (employee_id,))
@@ -300,13 +337,12 @@ async def manual_scan(employee_id: str = Form(...), file: UploadFile = File(...)
             return {"status": "ERROR", "message": "ไฟล์รูปภาพไม่ถูกต้องหรืออ่านไม่ได้"}
         # ---------------------------
         
-        save_log(employee_id, emp['name'], frame, type="MANUAL")
+        # 3. เพิ่ม client_ip=client_ip เข้าไปในวงเล็บของ save_log 👇
+        save_log(employee_id, emp['name'], frame, type="MANUAL", client_ip=client_ip)
+        
         return {"status": "OK", "name": emp['name'], "time": datetime.now().strftime("%H:%M:%S")}
     except Exception as e: 
         return {"status": "ERROR", "message": str(e)}
-
-@app.get("/health")
-async def health_check(): return {"status": "online"}
 
 # --- EMPLOYEE MANAGEMENT ---
 
@@ -700,25 +736,7 @@ async def cleanup_old_data_api(days: int = 45, username: str = Depends(verify_ad
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-# เพิ่ม Route สำหรับเปิดหน้า Monitor
-@app.get("/monitor")
-async def view_monitor():
-    return FileResponse("monitor.html")
-
-@app.get("/health")
-async def health_check():
-    """API สำหรับเช็คว่า Server ยังรอดอยู่ไหม"""
-    return {"status": "online"}
-
-@app.get("/webscan")
-async def view_webscan():
-    """เปิดหน้าระบบสแกนใบหน้าผ่าน Web Browser"""
-    return FileResponse("webscan.html")
-
-
-
-
 if __name__ == "__main__":
     print(f">>> 🚀 Starting Server on Port {SERVER_PORT}...")
-    # threading.Thread(target=cleanup_old_data, daemon=True).start()
+    threading.Thread(target=cleanup_old_data, daemon=True).start()
     uvicorn.run(app, host=SERVER_HOST, port=SERVER_PORT)
