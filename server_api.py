@@ -660,6 +660,46 @@ async def reset_attendance_data(username: str = Depends(verify_admin)):
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
+@app.delete("/api/system/cleanup-old")
+async def cleanup_old_data_api(days: int = 45, username: str = Depends(verify_admin)):
+    """ล้างข้อมูลประวัติและรูปภาพที่เก่ากว่า x วัน (ค่าเริ่มต้น 45 วัน)"""
+    try:
+        # คำนวณหาวันที่และเวลาตัดยอด (ย้อนหลัง 45 วัน)
+        cutoff_datetime = datetime.now() - timedelta(days=days)
+        cutoff_date_str = cutoff_datetime.strftime("%Y-%m-%d")
+        cutoff_timestamp = cutoff_datetime.timestamp()
+
+        # 1. ลบประวัติจาก Database ที่เก่ากว่าวันที่ตัดยอด
+        conn = get_db_conn()
+        cur = conn.cursor()
+        cur.execute("DELETE FROM attendance_logs WHERE date(check_time) < ?", (cutoff_date_str,))
+        deleted_logs = cur.rowcount  # นับจำนวนแถวที่ถูกลบ
+        cur.execute("DELETE FROM daily_remarks WHERE date_str < ?", (cutoff_date_str,))
+        conn.commit()
+        conn.close()
+
+        # 2. ลบไฟล์รูปภาพที่เก่ากว่าเวลาตัดยอด
+        folder = "attendance_images"
+        deleted_files = 0
+        if os.path.exists(folder):
+            for filename in os.listdir(folder):
+                file_path = os.path.join(folder, filename)
+                try:
+                    if os.path.isfile(file_path):
+                        # เช็คว่าไฟล์นี้ถูกสร้างก่อน cutoff_timestamp หรือไม่
+                        if os.path.getmtime(file_path) < cutoff_timestamp:
+                            os.unlink(file_path)
+                            deleted_files += 1
+                except Exception as e:
+                    pass
+
+        return {
+            "status": "success", 
+            "message": f"ลบประวัติไป {deleted_logs} รายการ และรูปภาพ {deleted_files} รูป เรียบร้อยแล้ว"
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
 # เพิ่ม Route สำหรับเปิดหน้า Monitor
 @app.get("/monitor")
 async def view_monitor():
