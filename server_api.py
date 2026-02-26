@@ -249,6 +249,7 @@ def send_telegram_thread(name, time_str, img_path, client_ip="Unknown"):
         print(f"Telegram Error: {e}")
 
 # เพิ่ม parameter client_ip
+# เพิ่ม parameter client_ip
 def save_log(emp_id, name, frame, type="SCAN", client_ip="Unknown"):
     now = datetime.now()
     conn = get_db_conn()
@@ -263,6 +264,32 @@ def save_log(emp_id, name, frame, type="SCAN", client_ip="Unknown"):
 
         if not os.path.exists("attendance_images"): os.makedirs("attendance_images")
         img_path = f"attendance_images/{emp_id}_{now.strftime('%H%M%S')}.jpg"
+        
+        # ==========================================
+        # 🟢 เพิ่มส่วนนี้: ฝังลายน้ำ (เวลา และ IP) ลงบนรูป
+        # ==========================================
+        timestamp_str = now.strftime('%Y-%m-%d %H:%M:%S')
+        watermark_text = f"Time: {timestamp_str} | IP: {client_ip}"
+        
+        # ตั้งค่าฟอนต์
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = 0.5
+        thickness = 1
+        
+        # คำนวณขนาดข้อความเพื่อวาดกรอบพื้นหลังสีดำ (ให้อ่านง่ายขึ้น)
+        (text_w, text_h), _ = cv2.getTextSize(watermark_text, font, font_scale, thickness)
+        
+        # พิกัดสำหรับวาด (มุมซ้ายล่างของภาพ)
+        x, y = 10, frame.shape[0] - 15
+        
+        # วาดกล่องดำทึบเป็นพื้นหลัง (ป้องกันกลืนกับสีเสื้อหรือฉากหลัง)
+        cv2.rectangle(frame, (x - 5, y - text_h - 5), (x + text_w + 5, y + 5), (0, 0, 0), -1)
+        
+        # วาดตัวหนังสือสีเขียวมะนาวทับลงไป
+        cv2.putText(frame, watermark_text, (x, y), font, font_scale, (0, 255, 0), thickness, cv2.LINE_AA)
+        # ==========================================
+
+        # บันทึกรูปลงโฟลเดอร์ (รูปนี้จะมีลายน้ำติดไปด้วย)
         cv2.imwrite(img_path, frame)
         
         status_txt = "บันทึกแล้ว" if type == "SCAN" else "บันทึกมือ"
@@ -273,7 +300,7 @@ def save_log(emp_id, name, frame, type="SCAN", client_ip="Unknown"):
         conn.commit()
 
         if ENABLE_TELEGRAM:
-            # ส่งค่า client_ip เข้า Thread ของ Telegram ด้วย
+            # ส่งค่า client_ip เข้า Thread ของ Telegram ด้วย (รูปที่ส่งไปก็จะมีลายน้ำด้วย)
             threading.Thread(target=send_telegram_thread, args=(f"{name} ({type})", now.strftime("%H:%M:%S"), img_path, client_ip)).start()
     except Exception as e: 
         print(f"DB Error: {e}")
