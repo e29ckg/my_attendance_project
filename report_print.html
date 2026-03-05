@@ -127,12 +127,12 @@
                 </div>
                 <div class="col-6">
                     <p class="fw-bold">ตรวจสอบแล้ว</p>
-                    <p><span id="roleLabel" contenteditable="true">เจ้าหน้าที่</span> จำนวน <span id="totalStaff">0</span> คน</p>
+                    <p><span id="roleLabel" contenteditable="true">เจ้าหน้าที่</span> จำนวน <span id="totalStaff" contenteditable="true">0</span> คน</p>
                     <div class="ps-3">
-                        <div class="stat-row"><span>มาปฏิบัติงาน</span><span><span id="countPresent">0</span> คน</span></div>
-                        <div class="stat-row"><span>ไม่มาปฏิบัติงาน</span><span><span id="countAbsent">0</span> คน</span></div>
-                        <div class="stat-row"><span>มาสาย</span><span><span id="countLate">0</span> คน</span></div>
-                        <div class="stat-row fw-bold mt-2"><span>รวมมาปฏิบัติงาน</span><span><span id="countTotalPresent">0</span> คน</span></div>
+                        <div class="stat-row"><span>มาปฏิบัติงาน</span><span><span id="countPresent" contenteditable="true">0</span> คน</span></div>
+                        <div class="stat-row"><span>ไม่มาปฏิบัติงาน</span><span><span id="countAbsent" contenteditable="true">0</span> คน</span></div>
+                        <div class="stat-row"><span>มาสาย</span><span><span id="countLate" contenteditable="true">0</span> คน</span></div>
+                        <div class="stat-row fw-bold mt-2"><span>รวมมาปฏิบัติงาน</span><span><span id="countTotalPresent" contenteditable="true">0</span> คน</span></div>
                     </div>
                     <br><br><br>
                     <div class="text-center">
@@ -216,9 +216,9 @@
                             ${depDisplay}
                         </td> 
                         <td></td>
-                        <td class="text-center">${item.time_in!=="-"?item.time_in.substring(0,5)+" น.":"-"}</td>
-                        <td></td> <td class="text-center">${item.time_out!=="-"?item.time_out.substring(0,5)+" น.":"-"}</td>
-                        <td class="text-center text-danger">${remark}</td>
+                        <td class="text-center" contenteditable="true">${item.time_in!=="-"?item.time_in.substring(0,5)+" น.":"-"}</td>
+                        <td></td> <td class="text-center" contenteditable="true">${item.time_out!=="-"?item.time_out.substring(0,5)+" น.":"-"}</td>
+                        <td class="text-center text-danger" contenteditable="true">${remark}</td>
                     </tr>`;
                 });
 
